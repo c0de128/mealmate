@@ -73,12 +73,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Recipe parser route
   app.post("/api/recipes/parse", async (req, res) => {
     try {
+      console.log('Parse route called with body:', req.body);
       const { recipeText } = req.body;
       if (!recipeText || typeof recipeText !== 'string') {
+        console.log('Invalid recipe text provided:', recipeText);
         return res.status(400).json({ message: "Recipe text is required" });
       }
       
+      console.log('Calling parseRecipeText with:', recipeText.substring(0, 100) + '...');
       const parsedRecipe = await parseRecipeText(recipeText);
+      console.log('parseRecipeText returned:', parsedRecipe);
       res.json(parsedRecipe);
     } catch (error) {
       console.error("Recipe parsing failed:", error);

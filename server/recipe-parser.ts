@@ -66,44 +66,78 @@ Return only valid JSON.`;
           content: prompt
         }
       ],
-      responseFormat: { type: "json_object" },
       temperature: 0.1
     });
 
-    console.log('Mistral API response:', response);
+    console.log('Mistral API response object keys:', Object.keys(response));
     console.log('Response choices:', response.choices);
-    console.log('Message content type:', typeof response.choices[0].message.content);
-    console.log('Message content:', response.choices[0].message.content);
+    console.log('First choice:', response.choices?.[0]);
+    console.log('Message:', response.choices?.[0]?.message);
+    console.log('Message content:', response.choices?.[0]?.message?.content);
+    console.log('Message content type:', typeof response.choices?.[0]?.message?.content);
 
-    const messageContent = typeof response.choices[0].message.content === 'string' 
-      ? response.choices[0].message.content 
-      : "";
+    let messageContent = "";
+    const content = response.choices?.[0]?.message?.content;
     
-    console.log('Extracted message content:', messageContent);
-    const parsedData = JSON.parse(messageContent || "{}");
-    console.log('Parsed JSON data:', parsedData);
+    if (typeof content === 'string') {
+      messageContent = content;
+    } else if (Array.isArray(content)) {
+      // Handle ContentChunk[] format
+      messageContent = content.map(chunk => {
+        if ('text' in chunk) return chunk.text;
+        return '';
+      }).join('');
+    }
+    
+    console.log('Final message content:', messageContent);
+    
+    let parsedData: any = {};
+    if (messageContent) {
+      try {
+        parsedData = JSON.parse(messageContent);
+        console.log('Successfully parsed JSON:', parsedData);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.log('Raw content that failed to parse:', messageContent);
+        // Try to extract JSON from the response if it's wrapped in text
+        const jsonMatch = messageContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            parsedData = JSON.parse(jsonMatch[0]);
+            console.log('Successfully parsed extracted JSON:', parsedData);
+          } catch (secondError) {
+            console.error('Second JSON parse failed:', secondError);
+          }
+        }
+      }
+    } else {
+      console.log('No message content found in response');
+    }
     
     // Validate and clean the parsed data
-    return {
-      name: parsedData.name || "Unnamed Recipe",
-      description: parsedData.description || "",
-      prepTime: parseInt(parsedData.prepTime) || 10,
-      cookTime: parseInt(parsedData.cookTime) || 20,
-      difficulty: ["easy", "medium", "hard"].includes(parsedData.difficulty) 
-        ? parsedData.difficulty : "easy",
-      servings: parseInt(parsedData.servings) || 4,
-      ingredients: Array.isArray(parsedData.ingredients) 
-        ? parsedData.ingredients.map((ing: any) => ({
-            name: String(ing.name || ""),
-            quantity: String(ing.quantity || "1"),
-            unit: String(ing.unit || "")
+    const result: ParsedRecipe = {
+      name: (parsedData as any)?.name || "Unnamed Recipe",
+      description: (parsedData as any)?.description || "",
+      prepTime: parseInt((parsedData as any)?.prepTime) || 10,
+      cookTime: parseInt((parsedData as any)?.cookTime) || 20,
+      difficulty: ["easy", "medium", "hard"].includes((parsedData as any)?.difficulty) 
+        ? (parsedData as any).difficulty : "easy",
+      servings: parseInt((parsedData as any)?.servings) || 4,
+      ingredients: Array.isArray((parsedData as any)?.ingredients) 
+        ? (parsedData as any).ingredients.map((ing: any) => ({
+            name: String(ing?.name || ""),
+            quantity: String(ing?.quantity || "1"),
+            unit: String(ing?.unit || "")
           }))
         : [],
-      instructions: String(parsedData.instructions || ""),
-      dietaryTags: Array.isArray(parsedData.dietaryTags) 
-        ? parsedData.dietaryTags.filter((tag: any) => typeof tag === "string")
+      instructions: String((parsedData as any)?.instructions || ""),
+      dietaryTags: Array.isArray((parsedData as any)?.dietaryTags) 
+        ? (parsedData as any).dietaryTags.filter((tag: any) => typeof tag === "string")
         : []
     };
+    
+    console.log('Final parsed result:', result);
+    return result;
   } catch (error) {
     console.error("Recipe parsing error:", error);
     throw new Error("Failed to parse recipe. Please check the format and try again.");
