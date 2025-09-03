@@ -67,7 +67,12 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
 
   const parseRecipeMutation = useMutation({
     mutationFn: async (recipeText: string) => {
-      return apiRequest('POST', '/api/recipes/parse', { recipeText });
+      console.log('Making API request with:', { recipeText });
+      const response = await apiRequest('POST', '/api/recipes/parse', { recipeText });
+      console.log('API response received:', response);
+      const data = await response.json();
+      console.log('Parsed JSON data:', data);
+      return data;
     },
     onSuccess: (parsedData: any) => {
       console.log('Parsed data received:', parsedData);
