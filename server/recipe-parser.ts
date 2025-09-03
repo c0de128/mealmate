@@ -1,8 +1,9 @@
-import OpenAI from "openai";
+import { Mistral } from "@mistralai/mistralai";
 import { type Ingredient } from "@shared/schema";
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const mistral = new Mistral({
+  apiKey: process.env.MISTRAL_API_KEY || ""
+});
 
 interface ParsedRecipe {
   name: string;
@@ -50,8 +51,8 @@ Guidelines:
 
 Return only valid JSON.`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5",
+    const response = await mistral.chat.complete({
+      model: "mistral-large-latest",
       messages: [
         {
           role: "system",
@@ -62,11 +63,15 @@ Return only valid JSON.`;
           content: prompt
         }
       ],
-      response_format: { type: "json_object" },
+      responseFormat: { type: "json_object" },
       temperature: 0.1
     });
 
-    const parsedData = JSON.parse(response.choices[0].message.content || "{}");
+    const messageContent = typeof response.choices[0].message.content === 'string' 
+      ? response.choices[0].message.content 
+      : "";
+    
+    const parsedData = JSON.parse(messageContent || "{}");
     
     // Validate and clean the parsed data
     return {
