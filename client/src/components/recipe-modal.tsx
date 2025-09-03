@@ -54,8 +54,8 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
     defaultValues: {
       name: "",
       description: "",
-      prepTime: undefined,
-      cookTime: undefined,
+      prepTime: 0,
+      cookTime: 0,
       difficulty: "easy",
       servings: 4,
       ingredients: [],
@@ -67,15 +67,11 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
 
   const parseRecipeMutation = useMutation({
     mutationFn: async (recipeText: string) => {
-      console.log('Making API request with:', { recipeText });
       const response = await apiRequest('POST', '/api/recipes/parse', { recipeText });
-      console.log('API response received:', response);
       const data = await response.json();
-      console.log('Parsed JSON data:', data);
       return data;
     },
     onSuccess: (parsedData: any) => {
-      console.log('Parsed data received:', parsedData);
       
       // Populate form with parsed data
       form.reset({
