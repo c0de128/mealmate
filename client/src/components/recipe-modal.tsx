@@ -115,6 +115,20 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
   };
 
   const onSubmit = (data: FormData) => {
+    console.log('Form data:', data);
+    console.log('Ingredients:', ingredients);
+    console.log('Dietary tags:', selectedDietaryTags);
+    console.log('Form errors:', form.formState.errors);
+    
+    const validIngredients = ingredients.filter(ing => 
+      ing.name.trim() && ing.quantity.trim()
+    );
+    
+    if (validIngredients.length === 0) {
+      toast({ title: "Please add at least one ingredient", variant: "destructive" });
+      return;
+    }
+    
     createRecipeMutation.mutate(data);
   };
 
