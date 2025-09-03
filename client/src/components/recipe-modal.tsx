@@ -70,18 +70,20 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
       return apiRequest('POST', '/api/recipes/parse', { recipeText });
     },
     onSuccess: (parsedData: any) => {
+      console.log('Parsed data received:', parsedData);
+      
       // Populate form with parsed data
       form.reset({
-        name: parsedData.name,
-        description: parsedData.description,
-        prepTime: parsedData.prepTime,
-        cookTime: parsedData.cookTime,
-        difficulty: parsedData.difficulty,
-        servings: parsedData.servings,
-        instructions: parsedData.instructions,
+        name: parsedData.name || "",
+        description: parsedData.description || "",
+        prepTime: parsedData.prepTime || 10,
+        cookTime: parsedData.cookTime || 20,
+        difficulty: parsedData.difficulty || "easy",
+        servings: parsedData.servings || 4,
+        instructions: parsedData.instructions || "",
         imageUrl: "",
-        ingredients: [],
-        dietaryTags: []
+        ingredients: parsedData.ingredients || [],
+        dietaryTags: parsedData.dietaryTags || []
       });
       
       setIngredients(parsedData.ingredients || [{ name: "", quantity: "", unit: "" }]);
