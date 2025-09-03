@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertRecipeSchema, insertMealPlanSchema, insertShoppingListItemSchema } from "@shared/schema";
+import { parseRecipeText } from "./recipe-parser";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -66,6 +67,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete recipe" });
+    }
+  });
+
+  // Recipe parser route
+  app.post("/api/recipes/parse", async (req, res) => {
+    try {
+      const { recipeText } = req.body;
+      if (!recipeText || typeof recipeText !== 'string') {
+        return res.status(400).json({ message: "Recipe text is required" });
+      }
+      
+      const parsedRecipe = await parseRecipeText(recipeText);
+      res.json(parsedRecipe);
+    } catch (error) {
+      console.error("Recipe parsing failed:", error);
+      res.status(500).json({ 
+        message: error instanceof Error ? error.message : "Failed to parse recipe" 
+      });
     }
   });
 

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { insertRecipeSchema, type Ingredient } from "@shared/schema";
-import { Plus, Trash2, Save } from "lucide-react";
+import { Plus, Trash2, Save, Sparkles, Copy } from "lucide-react";
 import { z } from "zod";
 
 interface RecipeModalProps {
@@ -43,6 +43,8 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
     { name: "", quantity: "", unit: "" }
   ]);
   const [selectedDietaryTags, setSelectedDietaryTags] = useState<string[]>([]);
+  const [showSmartImport, setShowSmartImport] = useState(false);
+  const [recipeText, setRecipeText] = useState("");
   
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -61,6 +63,40 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
       dietaryTags: [],
       imageUrl: "",
     },
+  });
+
+  const parseRecipeMutation = useMutation({
+    mutationFn: async (recipeText: string) => {
+      return apiRequest('POST', '/api/recipes/parse', { recipeText });
+    },
+    onSuccess: (parsedData: any) => {
+      // Populate form with parsed data
+      form.reset({
+        name: parsedData.name,
+        description: parsedData.description,
+        prepTime: parsedData.prepTime,
+        cookTime: parsedData.cookTime,
+        difficulty: parsedData.difficulty,
+        servings: parsedData.servings,
+        instructions: parsedData.instructions,
+        imageUrl: "",
+        ingredients: [],
+        dietaryTags: []
+      });
+      
+      setIngredients(parsedData.ingredients || [{ name: "", quantity: "", unit: "" }]);
+      setSelectedDietaryTags(parsedData.dietaryTags || []);
+      setShowSmartImport(false);
+      setRecipeText("");
+      toast({ title: "Recipe parsed successfully! Review and save." });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to parse recipe", 
+        description: error?.message || "Please check the format and try again.",
+        variant: "destructive" 
+      });
+    }
   });
 
   const createRecipeMutation = useMutation({
@@ -111,15 +147,20 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
     form.reset();
     setIngredients([{ name: "", quantity: "", unit: "" }]);
     setSelectedDietaryTags([]);
+    setShowSmartImport(false);
+    setRecipeText("");
     onClose();
   };
 
+  const handleSmartImport = () => {
+    if (!recipeText.trim()) {
+      toast({ title: "Please paste recipe text first", variant: "destructive" });
+      return;
+    }
+    parseRecipeMutation.mutate(recipeText);
+  };
+
   const onSubmit = (data: FormData) => {
-    console.log('Form data:', data);
-    console.log('Ingredients:', ingredients);
-    console.log('Dietary tags:', selectedDietaryTags);
-    console.log('Form errors:', form.formState.errors);
-    
     const validIngredients = ingredients.filter(ing => 
       ing.name.trim() && ing.quantity.trim()
     );
@@ -136,8 +177,78 @@ export default function RecipeModal({ isOpen, onClose }: RecipeModalProps) {
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add New Recipe</DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle>Add New Recipe</DialogTitle>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSmartImport(!showSmartImport)}
+              className="flex items-center space-x-2"
+              data-testid="button-smart-import-toggle"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span>Smart Import</span>
+            </Button>
+          </div>
         </DialogHeader>
+
+        {/* Smart Import Section */}
+        {showSmartImport && (
+          <div className="space-y-4 p-4 bg-secondary/50 rounded-lg border border-border">
+            <div className="flex items-center space-x-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold">Smart Recipe Import</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Paste any recipe text below and I'll automatically extract the ingredients, instructions, and details for you.
+            </p>
+            <Textarea
+              placeholder="Paste your recipe here... 
+
+Example:
+Teriyaki Salmon Bowls
+Prep: 10 min | Cook: 15 min | Serves: 4
+Ingredients:
+- 4 salmon fillets
+- 1/2 cup teriyaki sauce
+- 2 cups cooked rice
+Instructions:
+1. Marinate salmon in teriyaki sauce...
+2. Bake for 10-12 minutes..."
+              value={recipeText}
+              onChange={(e) => setRecipeText(e.target.value)}
+              rows={6}
+              className="resize-none"
+              data-testid="textarea-recipe-import"
+            />
+            <div className="flex space-x-2">
+              <Button
+                type="button"
+                onClick={handleSmartImport}
+                disabled={parseRecipeMutation.isPending || !recipeText.trim()}
+                className="flex items-center space-x-2"
+                data-testid="button-parse-recipe"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>
+                  {parseRecipeMutation.isPending ? "Parsing..." : "Parse Recipe"}
+                </span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setRecipeText("");
+                  setShowSmartImport(false);
+                }}
+                data-testid="button-clear-import"
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        )}
         
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
