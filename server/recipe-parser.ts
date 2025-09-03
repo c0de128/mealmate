@@ -19,6 +19,8 @@ interface ParsedRecipe {
 
 export async function parseRecipeText(recipeText: string): Promise<ParsedRecipe> {
   try {
+    console.log('Parsing recipe text:', recipeText.substring(0, 100) + '...');
+
     const prompt = `Parse the following recipe text and extract structured information. Return a JSON object with the exact structure shown below. If information is missing, use reasonable defaults.
 
 Recipe text:
@@ -51,6 +53,7 @@ Guidelines:
 
 Return only valid JSON.`;
 
+    console.log('Calling Mistral API...');
     const response = await mistral.chat.complete({
       model: "mistral-large-latest",
       messages: [
@@ -67,11 +70,18 @@ Return only valid JSON.`;
       temperature: 0.1
     });
 
+    console.log('Mistral API response:', response);
+    console.log('Response choices:', response.choices);
+    console.log('Message content type:', typeof response.choices[0].message.content);
+    console.log('Message content:', response.choices[0].message.content);
+
     const messageContent = typeof response.choices[0].message.content === 'string' 
       ? response.choices[0].message.content 
       : "";
     
+    console.log('Extracted message content:', messageContent);
     const parsedData = JSON.parse(messageContent || "{}");
+    console.log('Parsed JSON data:', parsedData);
     
     // Validate and clean the parsed data
     return {
