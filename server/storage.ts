@@ -1,5 +1,7 @@
+import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { db } from "./db";
+import { recipes, mealPlans, shoppingListItems } from "@shared/schema";
 import { type Recipe, type InsertRecipe, type MealPlan, type InsertMealPlan, type ShoppingListItem, type InsertShoppingListItem, type Ingredient } from "@shared/schema";
-import { randomUUID } from "crypto";
 
 export interface IStorage {
   // Recipe operations
@@ -25,17 +27,18 @@ export interface IStorage {
   generateShoppingList(weekStartDate: string): Promise<ShoppingListItem[]>;
 }
 
-export class MemStorage implements IStorage {
-  private recipes: Map<string, Recipe> = new Map();
-  private mealPlans: Map<string, MealPlan> = new Map();
-  private shoppingListItems: Map<string, ShoppingListItem> = new Map();
-
+export class DatabaseStorage implements IStorage {
   constructor() {
-    // Initialize with some sample recipes
-    this.initializeSampleData();
+    // Database will handle initialization
   }
 
-  private initializeSampleData() {
+  async initializeSampleData() {
+    // Check if we already have sample data
+    const existingRecipes = await this.getRecipes();
+    if (existingRecipes.length > 0) {
+      return; // Sample data already exists
+    }
+
     const sampleRecipes: InsertRecipe[] = [
       {
         name: "Mediterranean Quinoa Bowl",
@@ -77,62 +80,65 @@ export class MemStorage implements IStorage {
       }
     ];
 
-    sampleRecipes.forEach(recipe => {
-      this.createRecipe(recipe);
-    });
+    // Insert sample data
+    for (const recipe of sampleRecipes) {
+      await this.createRecipe(recipe);
+    }
   }
 
   async getRecipes(): Promise<Recipe[]> {
-    return Array.from(this.recipes.values());
+    return await db.select().from(recipes).orderBy(desc(recipes.createdAt));
   }
 
   async getRecipe(id: string): Promise<Recipe | undefined> {
-    return this.recipes.get(id);
+    const result = await db.select().from(recipes).where(eq(recipes.id, id)).limit(1);
+    return result[0];
   }
 
   async createRecipe(insertRecipe: InsertRecipe): Promise<Recipe> {
-    const id = randomUUID();
-    const recipe: Recipe = { 
-      id, 
-      name: insertRecipe.name,
-      description: insertRecipe.description || null,
-      prepTime: insertRecipe.prepTime || null,
-      cookTime: insertRecipe.cookTime || null,
-      difficulty: insertRecipe.difficulty,
-      servings: insertRecipe.servings || 4,
-      ingredients: insertRecipe.ingredients,
-      instructions: insertRecipe.instructions,
-      dietaryTags: insertRecipe.dietaryTags || [],
-      imageUrl: insertRecipe.imageUrl || null,
-      createdAt: new Date()
-    };
-    this.recipes.set(id, recipe);
-    return recipe;
+    const result = await db.insert(recipes).values(insertRecipe).returning();
+    return result[0];
   }
 
   async updateRecipe(id: string, updateData: Partial<InsertRecipe>): Promise<Recipe> {
-    const existing = this.recipes.get(id);
-    if (!existing) {
+    const result = await db.update(recipes).set(updateData).where(eq(recipes.id, id)).returning();
+    if (result.length === 0) {
       throw new Error("Recipe not found");
     }
-    const updated = { ...existing, ...updateData };
-    this.recipes.set(id, updated);
-    return updated;
+    return result[0];
   }
 
   async deleteRecipe(id: string): Promise<void> {
-    this.recipes.delete(id);
-    // Also delete related meal plans
-    for (const [planId, plan] of Array.from(this.mealPlans.entries())) {
-      if (plan.recipeId === id) {
-        this.mealPlans.delete(planId);
-      }
-    }
+    // Delete related meal plans first (foreign key constraint)
+    await db.delete(mealPlans).where(eq(mealPlans.recipeId, id));
+    // Delete the recipe
+    await db.delete(recipes).where(eq(recipes.id, id));
   }
 
   async searchRecipes(query: string, dietaryFilter?: string): Promise<Recipe[]> {
-    const recipes = Array.from(this.recipes.values());
-    return recipes.filter(recipe => {
+    let dbQuery = db.select().from(recipes);
+    
+    // Apply filters
+    const conditions = [];
+    
+    if (query) {
+      // Search in name, description, and ingredients (JSON search)
+      conditions.push(
+        // Note: For production, consider using full-text search or specialized search indices
+        // This is a simplified implementation
+        // In PostgreSQL, you might use tsvector for better text search
+      );
+    }
+    
+    if (dietaryFilter && dietaryFilter !== "all") {
+      // Search in dietaryTags array
+      // Note: This requires proper array operations in Drizzle/PostgreSQL
+    }
+    
+    // For now, get all recipes and filter in memory (can be optimized with proper DB queries)
+    const allRecipes = await db.select().from(recipes).orderBy(desc(recipes.createdAt));
+    
+    return allRecipes.filter(recipe => {
       const matchesQuery = !query || 
         recipe.name.toLowerCase().includes(query.toLowerCase()) ||
         recipe.description?.toLowerCase().includes(query.toLowerCase()) ||
@@ -147,97 +153,76 @@ export class MemStorage implements IStorage {
   }
 
   async getMealPlans(weekStartDate: string): Promise<MealPlan[]> {
-    return Array.from(this.mealPlans.values()).filter(plan => {
-      const planDate = new Date(plan.date);
-      const weekStart = new Date(weekStartDate);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      return planDate >= weekStart && planDate <= weekEnd;
-    });
+    const weekStart = new Date(weekStartDate);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    
+    return await db.select().from(mealPlans)
+      .where(and(
+        gte(mealPlans.date, weekStartDate),
+        lte(mealPlans.date, weekEnd.toISOString().split('T')[0])
+      ));
   }
 
   async getMealPlan(date: string, mealType: string): Promise<MealPlan | undefined> {
-    return Array.from(this.mealPlans.values()).find(
-      plan => plan.date === date && plan.mealType === mealType
-    );
+    const result = await db.select().from(mealPlans)
+      .where(and(
+        eq(mealPlans.date, date),
+        eq(mealPlans.mealType, mealType)
+      ))
+      .limit(1);
+    return result[0];
   }
 
   async createMealPlan(insertMealPlan: InsertMealPlan): Promise<MealPlan> {
-    const id = randomUUID();
-    const mealPlan: MealPlan = { 
-      id,
-      date: insertMealPlan.date,
-      mealType: insertMealPlan.mealType,
-      recipeId: insertMealPlan.recipeId || null,
-      servings: insertMealPlan.servings || 4
-    };
-    this.mealPlans.set(id, mealPlan);
-    return mealPlan;
+    const result = await db.insert(mealPlans).values(insertMealPlan).returning();
+    return result[0];
   }
 
   async updateMealPlan(id: string, updateData: Partial<InsertMealPlan>): Promise<MealPlan> {
-    const existing = this.mealPlans.get(id);
-    if (!existing) {
+    const result = await db.update(mealPlans).set(updateData).where(eq(mealPlans.id, id)).returning();
+    if (result.length === 0) {
       throw new Error("Meal plan not found");
     }
-    const updated = { ...existing, ...updateData };
-    this.mealPlans.set(id, updated);
-    return updated;
+    return result[0];
   }
 
   async deleteMealPlan(id: string): Promise<void> {
-    this.mealPlans.delete(id);
+    await db.delete(mealPlans).where(eq(mealPlans.id, id));
   }
 
   async getShoppingList(weekStartDate: string): Promise<ShoppingListItem[]> {
-    return Array.from(this.shoppingListItems.values()).filter(
-      item => item.weekStartDate === weekStartDate
-    );
+    return await db.select().from(shoppingListItems)
+      .where(eq(shoppingListItems.weekStartDate, weekStartDate));
   }
 
   async createShoppingListItem(insertItem: InsertShoppingListItem): Promise<ShoppingListItem> {
-    const id = randomUUID();
-    const item: ShoppingListItem = {
-      id,
-      weekStartDate: insertItem.weekStartDate,
-      ingredient: insertItem.ingredient,
-      quantity: insertItem.quantity,
-      unit: insertItem.unit || null,
-      checked: insertItem.checked || 0,
-      estimatedCost: insertItem.estimatedCost || null
-    };
-    this.shoppingListItems.set(id, item);
-    return item;
+    const result = await db.insert(shoppingListItems).values(insertItem).returning();
+    return result[0];
   }
 
   async updateShoppingListItem(id: string, updateData: Partial<InsertShoppingListItem>): Promise<ShoppingListItem> {
-    const existing = this.shoppingListItems.get(id);
-    if (!existing) {
+    const result = await db.update(shoppingListItems).set(updateData).where(eq(shoppingListItems.id, id)).returning();
+    if (result.length === 0) {
       throw new Error("Shopping list item not found");
     }
-    const updated = { ...existing, ...updateData };
-    this.shoppingListItems.set(id, updated);
-    return updated;
+    return result[0];
   }
 
   async deleteShoppingListItem(id: string): Promise<void> {
-    this.shoppingListItems.delete(id);
+    await db.delete(shoppingListItems).where(eq(shoppingListItems.id, id));
   }
 
   async generateShoppingList(weekStartDate: string): Promise<ShoppingListItem[]> {
     // Clear existing shopping list for this week
-    for (const [id, item] of Array.from(this.shoppingListItems.entries())) {
-      if (item.weekStartDate === weekStartDate) {
-        this.shoppingListItems.delete(id);
-      }
-    }
+    await db.delete(shoppingListItems).where(eq(shoppingListItems.weekStartDate, weekStartDate));
 
     // Get all meal plans for the week
-    const mealPlans = await this.getMealPlans(weekStartDate);
+    const weekMealPlans = await this.getMealPlans(weekStartDate);
     const ingredientMap = new Map<string, { quantity: number, unit: string, estimatedCost: string }>();
 
     // Aggregate ingredients from all planned meals
-    for (const mealPlan of mealPlans) {
+    for (const mealPlan of weekMealPlans) {
       if (!mealPlan.recipeId) continue;
       
       const recipe = await this.getRecipe(mealPlan.recipeId);
@@ -301,4 +286,7 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
+
+// Initialize sample data on startup
+storage.initializeSampleData().catch(console.error);

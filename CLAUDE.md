@@ -10,7 +10,8 @@ MealMate is a full-stack web application for meal planning, recipe management, a
 
 - **Monorepo structure**: Client and server code in separate directories
 - **Frontend**: React + TypeScript with Vite, using Radix UI components and Tailwind CSS
-- **Backend**: Express.js with TypeScript, in-memory storage (MemStorage class)
+- **Backend**: Express.js with TypeScript, PostgreSQL with Drizzle ORM
+- **Database**: PostgreSQL with Drizzle ORM for data persistence
 - **Shared**: Common schema definitions and types in `shared/` directory
 - **Routing**: Client uses Wouter for routing, server uses Express
 - **State Management**: React Query (TanStack Query) for server state
@@ -32,7 +33,10 @@ npm run build
 npm start
 
 # Database operations
-npm run db:push
+npm run db:generate    # Generate migration files
+npm run db:push       # Push schema to database
+npm run db:migrate    # Run migrations
+npm run db:studio     # Open database GUI
 ```
 
 ## Directory Structure
@@ -62,14 +66,26 @@ npm run db:push
 
 ## Development Notes
 
-- Uses in-memory storage (MemStorage) - data resets on server restart
-- Recipe parsing requires MISTRAL_API_KEY environment variable
+- Uses PostgreSQL with Drizzle ORM for data persistence
+- Recipe parsing requires MISTRAL_API_KEY environment variable  
+- Database setup requires DATABASE_URL environment variable
 - Server runs on port 5000 (configurable via PORT env var)
 - Client proxy configured in Vite for API requests
 - Shared schema validation using Zod
 - Component library based on Radix UI with Tailwind styling
 - Drag-and-drop functionality for meal planning
 - Real-time shopping list generation from planned meals
+- Sample data automatically seeded on first startup
+
+## Environment Setup
+
+1. Copy `.env.example` to `.env`
+2. Set `DATABASE_URL` (PostgreSQL connection string)
+3. Set `MISTRAL_API_KEY` (for AI recipe parsing)
+4. Run `npm run db:push` to initialize database
+5. Start development with `npm run dev`
+
+See `DATABASE_SETUP.md` for detailed database configuration.
 
 ## Testing
 
