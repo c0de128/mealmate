@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo, useCallback, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { type MealPlan, type Recipe } from "@shared/schema";
+import OptimizedImage from "@/components/optimized-image";
 import { Sun, Clock, Moon, Users, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +32,7 @@ const mealColors = {
   dinner: "text-blue-500",
 };
 
-export default function MealSlot({ 
+function MealSlot({ 
   date, 
   mealType, 
   mealPlan, 
@@ -44,8 +45,17 @@ export default function MealSlot({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const recipe = mealPlan?.recipeId ? recipes.find(r => r.id === mealPlan.recipeId) : null;
+  const recipe = useMemo(() => 
+    mealPlan?.recipeId ? recipes.find(r => r.id === mealPlan.recipeId) : null,
+    [mealPlan?.recipeId, recipes]
+  );
+  
   const Icon = mealIcons[mealType];
+  
+  const totalTime = useMemo(() => {
+    if (!recipe) return 0;
+    return (recipe.prepTime || 0) + (recipe.cookTime || 0);
+  }, [recipe]);
 
   const removeMealMutation = useMutation({
     mutationFn: async () => {
@@ -61,17 +71,17 @@ export default function MealSlot({
     }
   });
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(true);
-  };
+  }, []);
 
-  const handleDragLeave = (e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-  };
+  }, []);
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
     
@@ -79,13 +89,13 @@ export default function MealSlot({
     if (recipeId) {
       onMealAssign(date, mealType, recipeId);
     }
-  };
+  }, [date, mealType, onMealAssign]);
 
-  const handleAssignDraggedRecipe = () => {
+  const handleAssignDraggedRecipe = useCallback(() => {
     if (draggedRecipe) {
       onMealAssign(date, mealType, draggedRecipe.id);
     }
-  };
+  }, [draggedRecipe, date, mealType, onMealAssign]);
 
   return (
     <div className={className}>
@@ -114,19 +124,17 @@ export default function MealSlot({
                 <X className="h-3 w-3" />
               </Button>
             </div>
-            {recipe.imageUrl && (
-              <img 
-                src={recipe.imageUrl} 
-                alt={recipe.name}
-                className="w-full h-16 object-cover rounded mb-2"
-              />
-            )}
+            <OptimizedImage
+              src={recipe.imageUrl}
+              alt={recipe.name}
+              className="w-full h-16 rounded mb-2"
+            />
             <div className="flex justify-between items-center">
               <div className="flex items-center space-x-2 text-xs text-muted-foreground">
                 {(recipe.prepTime || recipe.cookTime) && (
                   <span className="flex items-center">
                     <Clock className="h-3 w-3 mr-1" />
-                    {(recipe.prepTime || 0) + (recipe.cookTime || 0)} min
+                    {totalTime} min
                   </span>
                 )}
                 <span className="flex items-center">
@@ -163,3 +171,5 @@ export default function MealSlot({
     </div>
   );
 }
+
+export default memo(MealSlot);

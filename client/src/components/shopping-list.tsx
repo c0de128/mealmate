@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { memo, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,7 +16,7 @@ interface ShoppingListProps {
   fullView?: boolean;
 }
 
-export default function ShoppingList({ items, weekStartDate, totalCost, fullView = false }: ShoppingListProps) {
+function ShoppingList({ items, weekStartDate, totalCost, fullView = false }: ShoppingListProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -44,7 +45,7 @@ export default function ShoppingList({ items, weekStartDate, totalCost, fullView
     }
   });
 
-  const exportList = () => {
+  const exportList = useCallback(() => {
     const listText = items.map(item => 
       `${item.checked ? '✓' : '☐'} ${item.ingredient} (${item.quantity}${item.unit ? ' ' + item.unit : ''}) - $${item.estimatedCost}`
     ).join('\n');
@@ -60,9 +61,19 @@ export default function ShoppingList({ items, weekStartDate, totalCost, fullView
     document.body.removeChild(element);
     
     toast({ title: "Shopping list exported!" });
-  };
+  }, [items, totalCost, weekStartDate, toast]);
 
-  const checkedItems = items.filter(item => item.checked).length;
+  const checkedItems = useMemo(() => 
+    items.filter(item => item.checked).length,
+    [items]
+  );
+  
+  const previewItems = useMemo(() => items.slice(0, 3), [items]);
+  
+  const completionPercentage = useMemo(() => {
+    if (items.length === 0) return 0;
+    return ((checkedItems / items.length) * 100);
+  }, [checkedItems, items.length]);
 
   if (!fullView) {
     // Preview version for dashboard
@@ -81,7 +92,7 @@ export default function ShoppingList({ items, weekStartDate, totalCost, fullView
         </CardHeader>
         <CardContent>
           <div className="space-y-2 mb-4">
-            {items.slice(0, 3).map((item) => (
+            {previewItems.map((item) => (
               <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-b-0">
                 <div className="flex items-center space-x-3">
                   <Checkbox
@@ -147,7 +158,7 @@ export default function ShoppingList({ items, weekStartDate, totalCost, fullView
                 {checkedItems}/{items.length} items
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {((checkedItems / items.length) * 100).toFixed(0)}% complete
+                {completionPercentage.toFixed(0)}% complete
               </span>
             </div>
             <Button onClick={exportList} variant="outline" data-testid="button-export-full">
@@ -201,3 +212,5 @@ export default function ShoppingList({ items, weekStartDate, totalCost, fullView
     </div>
   );
 }
+
+export default memo(ShoppingList);

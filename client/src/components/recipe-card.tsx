@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo, useCallback, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { type Recipe } from "@shared/schema";
-import { Clock, Users, Copy, Edit, Trash2, Star } from "lucide-react";
+import OptimizedImage from "@/components/optimized-image";
+import { Clock, Users, Copy, Edit, Trash2, Star, Heart } from "lucide-react";
 
 interface RecipeCardProps {
   recipe: Recipe;
@@ -14,7 +15,7 @@ interface RecipeCardProps {
   onDragEnd?: () => void;
 }
 
-export default function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCardProps) {
+function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCardProps) {
   const [isDragging, setIsDragging] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -49,26 +50,75 @@ export default function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCar
     }
   });
 
-  const getDifficultyStars = (difficulty: string) => {
-    const stars = difficulty === 'easy' ? 1 : difficulty === 'medium' ? 2 : 3;
+  const toggleFavoriteMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', `/api/recipes/${recipe.id}/favorite`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/recipes'] });
+      toast({ title: recipe.isFavorite ? "Removed from favorites" : "Added to favorites" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update favorite", variant: "destructive" });
+    }
+  });
+
+  const setRatingMutation = useMutation({
+    mutationFn: async (rating: number) => {
+      return apiRequest('POST', `/api/recipes/${recipe.id}/rating`, { rating });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/recipes'] });
+      toast({ title: "Rating updated!" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update rating", variant: "destructive" });
+    }
+  });
+
+  const difficultyStars = useMemo(() => {
+    const stars = recipe.difficulty === 'easy' ? 1 : recipe.difficulty === 'medium' ? 2 : 3;
     return Array.from({ length: 5 }, (_, i) => (
       <Star 
         key={i} 
         className={`h-3 w-3 ${i < stars ? 'text-warning fill-current' : 'text-muted-foreground'}`} 
       />
     ));
-  };
+  }, [recipe.difficulty]);
 
-  const handleDragStart = (e: React.DragEvent) => {
+  const ratingStars = useMemo(() => {
+    return Array.from({ length: 5 }, (_, i) => (
+      <Star 
+        key={i}
+        className={`h-3 w-3 cursor-pointer transition-colors ${
+          i < (recipe.rating || 0) ? 'text-yellow-400 fill-current' : 'text-muted-foreground hover:text-yellow-300'
+        }`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setRatingMutation.mutate(i + 1);
+        }}
+      />
+    ));
+  }, [recipe.rating, setRatingMutation]);
+
+  const handleDragStart = useCallback((e: React.DragEvent) => {
     setIsDragging(true);
     onDragStart?.();
     e.dataTransfer.setData('recipe-id', recipe.id);
-  };
+  }, [onDragStart, recipe.id]);
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     setIsDragging(false);
     onDragEnd?.();
-  };
+  }, [onDragEnd]);
+
+  const totalTime = useMemo(() => {
+    return (recipe.prepTime || 0) + (recipe.cookTime || 0);
+  }, [recipe.prepTime, recipe.cookTime]);
+
+  const visibleDietaryTags = useMemo(() => {
+    return recipe.dietaryTags.slice(0, 2);
+  }, [recipe.dietaryTags]);
 
   return (
     <Card 
@@ -78,13 +128,11 @@ export default function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCar
       onDragEnd={handleDragEnd}
       data-testid={`card-recipe-${recipe.id}`}
     >
-      {recipe.imageUrl && (
-        <img 
-          src={recipe.imageUrl} 
-          alt={recipe.name}
-          className="w-full h-32 object-cover"
-        />
-      )}
+      <OptimizedImage
+        src={recipe.imageUrl}
+        alt={recipe.name}
+        className="w-full h-32"
+      />
       <CardContent className="p-4">
         <h4 className="font-semibold text-card-foreground mb-2" data-testid="text-recipe-name">
           {recipe.name}
@@ -100,7 +148,7 @@ export default function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCar
             {(recipe.prepTime || recipe.cookTime) && (
               <span className="flex items-center">
                 <Clock className="h-3 w-3 mr-1" />
-                {(recipe.prepTime || 0) + (recipe.cookTime || 0)} min
+                {totalTime} min
               </span>
             )}
             <span className="flex items-center">
@@ -110,7 +158,7 @@ export default function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCar
           </div>
           {recipe.dietaryTags.length > 0 && (
             <div className="flex space-x-1">
-              {recipe.dietaryTags.slice(0, 2).map((tag) => (
+              {visibleDietaryTags.map((tag) => (
                 <Badge 
                   key={tag} 
                   variant="secondary" 
@@ -124,20 +172,47 @@ export default function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCar
           )}
         </div>
         
+        {/* Rating Row */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center space-x-1">
+            <span className="text-xs text-muted-foreground">Rating:</span>
+            <div className="flex">{ratingStars}</div>
+          </div>
+          {recipe.isFavorite && (
+            <Heart className="h-3 w-3 text-red-500 fill-current" />
+          )}
+        </div>
+        
         <div className="flex justify-between items-center">
           <div className="flex items-center space-x-1">
             <div className="flex">
-              {getDifficultyStars(recipe.difficulty)}
+              {difficultyStars}
             </div>
             <span className="text-xs text-muted-foreground capitalize">
               {recipe.difficulty}
             </span>
           </div>
-          <div className="flex space-x-2">
+          <div className="flex space-x-1">
             <Button 
               variant="ghost" 
               size="sm"
-              onClick={() => duplicateRecipeMutation.mutate()}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFavoriteMutation.mutate();
+              }}
+              disabled={toggleFavoriteMutation.isPending}
+              className={`${recipe.isFavorite ? 'text-red-500 hover:text-red-600' : 'text-muted-foreground hover:text-red-500'}`}
+              data-testid="button-favorite-recipe"
+            >
+              <Heart className={`h-3 w-3 ${recipe.isFavorite ? 'fill-current' : ''}`} />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                duplicateRecipeMutation.mutate();
+              }}
               disabled={duplicateRecipeMutation.isPending}
               data-testid="button-duplicate-recipe"
             >
@@ -153,7 +228,10 @@ export default function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCar
             <Button 
               variant="ghost" 
               size="sm"
-              onClick={() => deleteRecipeMutation.mutate()}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteRecipeMutation.mutate();
+              }}
               disabled={deleteRecipeMutation.isPending}
               className="text-destructive hover:text-destructive"
               data-testid="button-delete-recipe"
@@ -166,3 +244,5 @@ export default function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCar
     </Card>
   );
 }
+
+export default memo(RecipeCard);

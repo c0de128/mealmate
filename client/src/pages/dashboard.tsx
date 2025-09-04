@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, startOfWeek, addDays } from "date-fns";
 import Navigation from "@/components/navigation";
@@ -99,16 +99,39 @@ export default function Dashboard() {
     getWeekStats 
   } = useMealPlan(currentWeek, mealPlans, recipes);
 
-  const handleMealAssignment = (date: string, mealType: string, recipeId: string) => {
+  const handleMealAssignment = useCallback((date: string, mealType: string, recipeId: string) => {
     assignMealMutation.mutate({ date, mealType, recipeId });
-  };
+  }, [assignMealMutation]);
 
   const stats = getWeekStats();
-  const totalEstimatedCost = shoppingList.reduce((sum: number, item: any) => 
-    sum + parseFloat(item.estimatedCost || '0'), 0
+  
+  const totalEstimatedCost = useMemo(() => 
+    shoppingList.reduce((sum: number, item: any) => 
+      sum + parseFloat(item.estimatedCost || '0'), 0
+    ),
+    [shoppingList]
   );
 
-  const weekLabel = `${format(currentWeek, 'MMM d')} - ${format(addDays(currentWeek, 6), 'MMM d, yyyy')}`;
+  const weekLabel = useMemo(() => 
+    `${format(currentWeek, 'MMM d')} - ${format(addDays(currentWeek, 6), 'MMM d, yyyy')}`,
+    [currentWeek]
+  );
+  
+  const handlePreviousWeek = useCallback(() => {
+    setCurrentWeek(addDays(currentWeek, -7));
+  }, [currentWeek]);
+  
+  const handleNextWeek = useCallback(() => {
+    setCurrentWeek(addDays(currentWeek, 7));
+  }, [currentWeek]);
+  
+  const handleGenerateShoppingList = useCallback(() => {
+    generateShoppingListMutation.mutate();
+  }, [generateShoppingListMutation]);
+  
+  const handleOpenRecipeModal = useCallback(() => {
+    setIsRecipeModalOpen(true);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -137,7 +160,7 @@ export default function Dashboard() {
                 />
               </div>
               <Button 
-                onClick={() => generateShoppingListMutation.mutate()}
+                onClick={handleGenerateShoppingList}
                 disabled={generateShoppingListMutation.isPending}
                 className="bg-accent text-accent-foreground hover:bg-accent/90"
                 data-testid="button-generate-shopping-list"
@@ -158,7 +181,7 @@ export default function Dashboard() {
                 <Button 
                   variant="ghost" 
                   size="sm"
-                  onClick={() => setCurrentWeek(addDays(currentWeek, -7))}
+                  onClick={handlePreviousWeek}
                   data-testid="button-previous-week"
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -169,7 +192,7 @@ export default function Dashboard() {
                 <Button 
                   variant="ghost" 
                   size="sm"
-                  onClick={() => setCurrentWeek(addDays(currentWeek, 7))}
+                  onClick={handleNextWeek}
                   data-testid="button-next-week"
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -356,7 +379,7 @@ export default function Dashboard() {
       {/* Floating Action Button */}
       <Button
         className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all z-40"
-        onClick={() => setIsRecipeModalOpen(true)}
+        onClick={handleOpenRecipeModal}
         data-testid="button-add-recipe"
       >
         <Plus className="h-6 w-6" />

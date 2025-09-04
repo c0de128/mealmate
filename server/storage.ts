@@ -1,7 +1,7 @@
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, ilike, arrayContains, sql } from "drizzle-orm";
 import { db } from "./db";
-import { recipes, mealPlans, shoppingListItems } from "@shared/schema";
-import { type Recipe, type InsertRecipe, type MealPlan, type InsertMealPlan, type ShoppingListItem, type InsertShoppingListItem, type Ingredient } from "@shared/schema";
+import { recipes, mealPlans, shoppingListItems, recipeCollections, recipeCollectionItems } from "@shared/schema";
+import { type Recipe, type InsertRecipe, type MealPlan, type InsertMealPlan, type ShoppingListItem, type InsertShoppingListItem, type Ingredient, type RecipeCollection, type InsertRecipeCollection, type RecipeCollectionItem, type InsertRecipeCollectionItem } from "@shared/schema";
 
 export interface IStorage {
   // Recipe operations
@@ -25,6 +25,25 @@ export interface IStorage {
   updateShoppingListItem(id: string, item: Partial<InsertShoppingListItem>): Promise<ShoppingListItem>;
   deleteShoppingListItem(id: string): Promise<void>;
   generateShoppingList(weekStartDate: string): Promise<ShoppingListItem[]>;
+  
+  // Recipe collection operations
+  getRecipeCollections(): Promise<RecipeCollection[]>;
+  getRecipeCollection(id: string): Promise<RecipeCollection | undefined>;
+  createRecipeCollection(collection: InsertRecipeCollection): Promise<RecipeCollection>;
+  updateRecipeCollection(id: string, collection: Partial<InsertRecipeCollection>): Promise<RecipeCollection>;
+  deleteRecipeCollection(id: string): Promise<void>;
+  
+  // Collection item operations
+  getRecipesByCollection(collectionId: string): Promise<Recipe[]>;
+  addRecipeToCollection(collectionId: string, recipeId: string): Promise<RecipeCollectionItem>;
+  removeRecipeFromCollection(collectionId: string, recipeId: string): Promise<void>;
+  
+  // Favorites operations
+  toggleRecipeFavorite(id: string): Promise<Recipe>;
+  getFavoriteRecipes(): Promise<Recipe[]>;
+  
+  // Rating operations
+  setRecipeRating(id: string, rating: number): Promise<Recipe>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -116,52 +135,49 @@ export class DatabaseStorage implements IStorage {
   }
 
   async searchRecipes(query: string, dietaryFilter?: string): Promise<Recipe[]> {
-    let dbQuery = db.select().from(recipes);
-    
-    // Apply filters
     const conditions = [];
     
+    // Text search in name and description
     if (query) {
-      // Search in name, description, and ingredients (JSON search)
+      const searchTerm = `%${query.toLowerCase()}%`;
       conditions.push(
-        // Note: For production, consider using full-text search or specialized search indices
-        // This is a simplified implementation
-        // In PostgreSQL, you might use tsvector for better text search
+        sql`(
+          lower(${recipes.name}) LIKE ${searchTerm} OR 
+          lower(${recipes.description}) LIKE ${searchTerm} OR
+          EXISTS (
+            SELECT 1 FROM jsonb_array_elements(${recipes.ingredients}) AS ingredient
+            WHERE lower(ingredient->>'name') LIKE ${searchTerm}
+          )
+        )`
       );
     }
     
+    // Dietary filter using array contains
     if (dietaryFilter && dietaryFilter !== "all") {
-      // Search in dietaryTags array
-      // Note: This requires proper array operations in Drizzle/PostgreSQL
+      conditions.push(arrayContains(recipes.dietaryTags, [dietaryFilter]));
     }
     
-    // For now, get all recipes and filter in memory (can be optimized with proper DB queries)
-    const allRecipes = await db.select().from(recipes).orderBy(desc(recipes.createdAt));
+    let dbQuery = db.select().from(recipes);
     
-    return allRecipes.filter(recipe => {
-      const matchesQuery = !query || 
-        recipe.name.toLowerCase().includes(query.toLowerCase()) ||
-        recipe.description?.toLowerCase().includes(query.toLowerCase()) ||
-        recipe.ingredients.some(ing => ing.name.toLowerCase().includes(query.toLowerCase()));
-      
-      const matchesDietary = !dietaryFilter || 
-        dietaryFilter === "all" ||
-        recipe.dietaryTags.includes(dietaryFilter);
-      
-      return matchesQuery && matchesDietary;
-    });
+    if (conditions.length > 0) {
+      dbQuery = dbQuery.where(and(...conditions));
+    }
+    
+    return await dbQuery.orderBy(desc(recipes.createdAt));
   }
 
   async getMealPlans(weekStartDate: string): Promise<MealPlan[]> {
     const weekStart = new Date(weekStartDate);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
+    const weekEndStr = weekEnd.toISOString().split('T')[0];
     
     return await db.select().from(mealPlans)
       .where(and(
         gte(mealPlans.date, weekStartDate),
-        lte(mealPlans.date, weekEnd.toISOString().split('T')[0])
-      ));
+        lte(mealPlans.date, weekEndStr)
+      ))
+      .orderBy(mealPlans.date, mealPlans.mealType);
   }
 
   async getMealPlan(date: string, mealType: string): Promise<MealPlan | undefined> {
@@ -283,6 +299,115 @@ export class DatabaseStorage implements IStorage {
 
     const unitCost = baseCosts[ingredient.toLowerCase()] || 1.99;
     return (unitCost * Math.max(quantity, 0.1)).toFixed(2);
+  }
+
+  // Recipe collection operations
+  async getRecipeCollections(): Promise<RecipeCollection[]> {
+    return await db.select().from(recipeCollections).orderBy(desc(recipeCollections.createdAt));
+  }
+
+  async getRecipeCollection(id: string): Promise<RecipeCollection | undefined> {
+    const result = await db.select().from(recipeCollections).where(eq(recipeCollections.id, id)).limit(1);
+    return result[0];
+  }
+
+  async createRecipeCollection(insertCollection: InsertRecipeCollection): Promise<RecipeCollection> {
+    const result = await db.insert(recipeCollections).values(insertCollection).returning();
+    return result[0];
+  }
+
+  async updateRecipeCollection(id: string, updateData: Partial<InsertRecipeCollection>): Promise<RecipeCollection> {
+    const result = await db.update(recipeCollections).set(updateData).where(eq(recipeCollections.id, id)).returning();
+    if (result.length === 0) {
+      throw new Error("Recipe collection not found");
+    }
+    return result[0];
+  }
+
+  async deleteRecipeCollection(id: string): Promise<void> {
+    // Collection items will be deleted automatically due to cascade
+    await db.delete(recipeCollections).where(eq(recipeCollections.id, id));
+  }
+
+  // Collection item operations
+  async getRecipesByCollection(collectionId: string): Promise<Recipe[]> {
+    const result = await db
+      .select({ recipe: recipes })
+      .from(recipeCollectionItems)
+      .innerJoin(recipes, eq(recipeCollectionItems.recipeId, recipes.id))
+      .where(eq(recipeCollectionItems.collectionId, collectionId))
+      .orderBy(desc(recipeCollectionItems.addedAt));
+
+    return result.map(row => row.recipe);
+  }
+
+  async addRecipeToCollection(collectionId: string, recipeId: string): Promise<RecipeCollectionItem> {
+    // Check if already exists
+    const existing = await db
+      .select()
+      .from(recipeCollectionItems)
+      .where(and(
+        eq(recipeCollectionItems.collectionId, collectionId),
+        eq(recipeCollectionItems.recipeId, recipeId)
+      ))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return existing[0];
+    }
+
+    const result = await db.insert(recipeCollectionItems).values({
+      collectionId,
+      recipeId
+    }).returning();
+    return result[0];
+  }
+
+  async removeRecipeFromCollection(collectionId: string, recipeId: string): Promise<void> {
+    await db.delete(recipeCollectionItems).where(and(
+      eq(recipeCollectionItems.collectionId, collectionId),
+      eq(recipeCollectionItems.recipeId, recipeId)
+    ));
+  }
+
+  // Favorites operations
+  async toggleRecipeFavorite(id: string): Promise<Recipe> {
+    const recipe = await this.getRecipe(id);
+    if (!recipe) {
+      throw new Error("Recipe not found");
+    }
+
+    const newFavoriteStatus = recipe.isFavorite ? 0 : 1;
+    const result = await db.update(recipes)
+      .set({ isFavorite: newFavoriteStatus })
+      .where(eq(recipes.id, id))
+      .returning();
+    
+    return result[0];
+  }
+
+  async getFavoriteRecipes(): Promise<Recipe[]> {
+    return await db.select().from(recipes)
+      .where(eq(recipes.isFavorite, 1))
+      .orderBy(desc(recipes.createdAt));
+  }
+
+  // Rating operations
+  async setRecipeRating(id: string, rating: number): Promise<Recipe> {
+    if (rating < 1 || rating > 5) {
+      throw new Error("Rating must be between 1 and 5");
+    }
+
+    const result = await db.update(recipes)
+      .set({ rating })
+      .where(eq(recipes.id, id))
+      .returning();
+
+    if (result.length === 0) {
+      throw new Error("Recipe not found");
+    }
+    
+    return result[0];
   }
 }
 

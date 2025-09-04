@@ -1,8 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertRecipeSchema, insertMealPlanSchema, insertShoppingListItemSchema } from "@shared/schema";
+import { insertRecipeSchema, insertMealPlanSchema, insertShoppingListItemSchema, insertRecipeCollectionSchema } from "@shared/schema";
 import { parseRecipeText } from "./recipe-parser";
+import { calculateRecipeNutrition, calculateMealPlanNutrition } from "./nutrition";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -186,6 +187,190 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete shopping list item" });
+    }
+  });
+
+  // Recipe collection routes
+  app.get("/api/collections", async (req, res) => {
+    try {
+      const collections = await storage.getRecipeCollections();
+      res.json(collections);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch collections" });
+    }
+  });
+
+  app.post("/api/collections", async (req, res) => {
+    try {
+      const validatedData = insertRecipeCollectionSchema.parse(req.body);
+      const collection = await storage.createRecipeCollection(validatedData);
+      res.status(201).json(collection);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid collection data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create collection" });
+    }
+  });
+
+  app.get("/api/collections/:id", async (req, res) => {
+    try {
+      const collection = await storage.getRecipeCollection(req.params.id);
+      if (!collection) {
+        return res.status(404).json({ message: "Collection not found" });
+      }
+      res.json(collection);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch collection" });
+    }
+  });
+
+  app.get("/api/collections/:id/recipes", async (req, res) => {
+    try {
+      const recipes = await storage.getRecipesByCollection(req.params.id);
+      res.json(recipes);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch collection recipes" });
+    }
+  });
+
+  app.post("/api/collections/:id/recipes", async (req, res) => {
+    try {
+      const { recipeId } = req.body;
+      if (!recipeId) {
+        return res.status(400).json({ message: "Recipe ID is required" });
+      }
+      const item = await storage.addRecipeToCollection(req.params.id, recipeId);
+      res.status(201).json(item);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to add recipe to collection" });
+    }
+  });
+
+  app.delete("/api/collections/:id/recipes/:recipeId", async (req, res) => {
+    try {
+      await storage.removeRecipeFromCollection(req.params.id, req.params.recipeId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to remove recipe from collection" });
+    }
+  });
+
+  app.delete("/api/collections/:id", async (req, res) => {
+    try {
+      await storage.deleteRecipeCollection(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete collection" });
+    }
+  });
+
+  // Recipe favorites and ratings routes
+  app.post("/api/recipes/:id/favorite", async (req, res) => {
+    try {
+      const recipe = await storage.toggleRecipeFavorite(req.params.id);
+      res.json(recipe);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Recipe not found") {
+        return res.status(404).json({ message: "Recipe not found" });
+      }
+      res.status(500).json({ message: "Failed to toggle favorite" });
+    }
+  });
+
+  app.get("/api/recipes/favorites", async (req, res) => {
+    try {
+      const favorites = await storage.getFavoriteRecipes();
+      res.json(favorites);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch favorite recipes" });
+    }
+  });
+
+  app.post("/api/recipes/:id/rating", async (req, res) => {
+    try {
+      const { rating } = req.body;
+      if (!rating || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "Rating must be between 1 and 5" });
+      }
+      const recipe = await storage.setRecipeRating(req.params.id, rating);
+      res.json(recipe);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Recipe not found") {
+        return res.status(404).json({ message: "Recipe not found" });
+      }
+      res.status(500).json({ message: "Failed to set rating" });
+    }
+  });
+
+  // Nutrition analysis routes
+  app.post("/api/recipes/:id/nutrition", async (req, res) => {
+    try {
+      const recipe = await storage.getRecipe(req.params.id);
+      if (!recipe) {
+        return res.status(404).json({ message: "Recipe not found" });
+      }
+      
+      const nutrition = calculateRecipeNutrition(recipe.ingredients);
+      res.json({
+        recipeId: recipe.id,
+        recipeName: recipe.name,
+        servings: recipe.servings,
+        nutritionPerServing: {
+          calories: Math.round(nutrition.calories / recipe.servings),
+          protein: Math.round((nutrition.protein / recipe.servings) * 10) / 10,
+          carbs: Math.round((nutrition.carbs / recipe.servings) * 10) / 10,
+          fat: Math.round((nutrition.fat / recipe.servings) * 10) / 10,
+          fiber: Math.round((nutrition.fiber / recipe.servings) * 10) / 10,
+          sodium: Math.round(nutrition.sodium / recipe.servings),
+        },
+        nutritionTotal: nutrition
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to calculate nutrition" });
+    }
+  });
+
+  app.post("/api/meal-plans/nutrition", async (req, res) => {
+    try {
+      const { weekStartDate } = req.body;
+      if (!weekStartDate) {
+        return res.status(400).json({ message: "weekStartDate is required" });
+      }
+      
+      const mealPlans = await storage.getMealPlans(weekStartDate);
+      const recipesWithServings = [];
+      
+      for (const mealPlan of mealPlans) {
+        if (mealPlan.recipeId) {
+          const recipe = await storage.getRecipe(mealPlan.recipeId);
+          if (recipe) {
+            recipesWithServings.push({
+              recipe,
+              servings: mealPlan.servings
+            });
+          }
+        }
+      }
+      
+      const totalNutrition = calculateMealPlanNutrition(recipesWithServings);
+      const dailyNutrition = {
+        calories: Math.round(totalNutrition.calories / 7),
+        protein: Math.round((totalNutrition.protein / 7) * 10) / 10,
+        carbs: Math.round((totalNutrition.carbs / 7) * 10) / 10,
+        fat: Math.round((totalNutrition.fat / 7) * 10) / 10,
+        fiber: Math.round((totalNutrition.fiber / 7) * 10) / 10,
+        sodium: Math.round(totalNutrition.sodium / 7),
+      };
+      
+      res.json({
+        weekStartDate,
+        totalMeals: mealPlans.length,
+        weeklyNutrition: totalNutrition,
+        dailyAverageNutrition: dailyNutrition
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to calculate meal plan nutrition" });
     }
   });
 
