@@ -4,7 +4,16 @@
       "Bash(git remote add:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(cat:*)",
+      "Bash(npm install)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(tasklist:*)",
+      "Bash(cmd /c:*)",
+      "Bash(MISTRAL_API_KEY=CORGD649xjL0oSKeyGMqPT5Cxh4ylD0C PORT=5002 tsx server/index.ts)",
+      "Bash(MISTRAL_API_KEY=CORGD649xjL0oSKeyGMqPT5Cxh4ylD0C PORT=5002 npx tsx server/index.ts)"
     ],
     "deny": [],
     "ask": []

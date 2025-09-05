@@ -55,7 +55,7 @@ Return only valid JSON.`;
 
     console.log('Calling Mistral API...');
     const response = await mistral.chat.complete({
-      model: "mistral-large-latest",
+      model: "mistral-small-latest",
       messages: [
         {
           role: "system",

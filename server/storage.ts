@@ -1,5 +1,4 @@
 import { eq, and, gte, lte, desc, ilike, arrayContains, sql } from "drizzle-orm";
-import { db } from "./db";
 import { recipes, mealPlans, shoppingListItems, recipeCollections, recipeCollectionItems } from "@shared/schema";
 import { type Recipe, type InsertRecipe, type MealPlan, type InsertMealPlan, type ShoppingListItem, type InsertShoppingListItem, type Ingredient, type RecipeCollection, type InsertRecipeCollection, type RecipeCollectionItem, type InsertRecipeCollectionItem } from "@shared/schema";
 
@@ -47,8 +46,12 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private db: any;
+  
   constructor() {
-    // Database will handle initialization
+    // Lazy load database connection only when DatabaseStorage is used
+    const { db } = require("./db");
+    this.db = db;
   }
 
   async initializeSampleData() {
@@ -106,21 +109,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRecipes(): Promise<Recipe[]> {
-    return await db.select().from(recipes).orderBy(desc(recipes.createdAt));
+    return await this.this.db.select().from(recipes).orderBy(desc(recipes.createdAt));
   }
 
   async getRecipe(id: string): Promise<Recipe | undefined> {
-    const result = await db.select().from(recipes).where(eq(recipes.id, id)).limit(1);
+    const result = await this.db.select().from(recipes).where(eq(recipes.id, id)).limit(1);
     return result[0];
   }
 
   async createRecipe(insertRecipe: InsertRecipe): Promise<Recipe> {
-    const result = await db.insert(recipes).values(insertRecipe).returning();
+    const result = await this.db.insert(recipes).values(insertRecipe).returning();
     return result[0];
   }
 
   async updateRecipe(id: string, updateData: Partial<InsertRecipe>): Promise<Recipe> {
-    const result = await db.update(recipes).set(updateData).where(eq(recipes.id, id)).returning();
+    const result = await this.db.update(recipes).set(updateData).where(eq(recipes.id, id)).returning();
     if (result.length === 0) {
       throw new Error("Recipe not found");
     }
@@ -129,9 +132,9 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRecipe(id: string): Promise<void> {
     // Delete related meal plans first (foreign key constraint)
-    await db.delete(mealPlans).where(eq(mealPlans.recipeId, id));
+    await this.db.delete(mealPlans).where(eq(mealPlans.recipeId, id));
     // Delete the recipe
-    await db.delete(recipes).where(eq(recipes.id, id));
+    await this.db.delete(recipes).where(eq(recipes.id, id));
   }
 
   async searchRecipes(query: string, dietaryFilter?: string): Promise<Recipe[]> {
@@ -157,7 +160,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(arrayContains(recipes.dietaryTags, [dietaryFilter]));
     }
     
-    let dbQuery = db.select().from(recipes);
+    let dbQuery = this.db.select().from(recipes);
     
     if (conditions.length > 0) {
       dbQuery = dbQuery.where(and(...conditions));
@@ -172,7 +175,7 @@ export class DatabaseStorage implements IStorage {
     weekEnd.setDate(weekEnd.getDate() + 6);
     const weekEndStr = weekEnd.toISOString().split('T')[0];
     
-    return await db.select().from(mealPlans)
+    return await this.db.select().from(mealPlans)
       .where(and(
         gte(mealPlans.date, weekStartDate),
         lte(mealPlans.date, weekEndStr)
@@ -181,7 +184,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMealPlan(date: string, mealType: string): Promise<MealPlan | undefined> {
-    const result = await db.select().from(mealPlans)
+    const result = await this.db.select().from(mealPlans)
       .where(and(
         eq(mealPlans.date, date),
         eq(mealPlans.mealType, mealType)
@@ -191,12 +194,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createMealPlan(insertMealPlan: InsertMealPlan): Promise<MealPlan> {
-    const result = await db.insert(mealPlans).values(insertMealPlan).returning();
+    const result = await this.db.insert(mealPlans).values(insertMealPlan).returning();
     return result[0];
   }
 
   async updateMealPlan(id: string, updateData: Partial<InsertMealPlan>): Promise<MealPlan> {
-    const result = await db.update(mealPlans).set(updateData).where(eq(mealPlans.id, id)).returning();
+    const result = await this.db.update(mealPlans).set(updateData).where(eq(mealPlans.id, id)).returning();
     if (result.length === 0) {
       throw new Error("Meal plan not found");
     }
@@ -204,21 +207,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteMealPlan(id: string): Promise<void> {
-    await db.delete(mealPlans).where(eq(mealPlans.id, id));
+    await this.db.delete(mealPlans).where(eq(mealPlans.id, id));
   }
 
   async getShoppingList(weekStartDate: string): Promise<ShoppingListItem[]> {
-    return await db.select().from(shoppingListItems)
+    return await this.db.select().from(shoppingListItems)
       .where(eq(shoppingListItems.weekStartDate, weekStartDate));
   }
 
   async createShoppingListItem(insertItem: InsertShoppingListItem): Promise<ShoppingListItem> {
-    const result = await db.insert(shoppingListItems).values(insertItem).returning();
+    const result = await this.db.insert(shoppingListItems).values(insertItem).returning();
     return result[0];
   }
 
   async updateShoppingListItem(id: string, updateData: Partial<InsertShoppingListItem>): Promise<ShoppingListItem> {
-    const result = await db.update(shoppingListItems).set(updateData).where(eq(shoppingListItems.id, id)).returning();
+    const result = await this.db.update(shoppingListItems).set(updateData).where(eq(shoppingListItems.id, id)).returning();
     if (result.length === 0) {
       throw new Error("Shopping list item not found");
     }
@@ -226,12 +229,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteShoppingListItem(id: string): Promise<void> {
-    await db.delete(shoppingListItems).where(eq(shoppingListItems.id, id));
+    await this.db.delete(shoppingListItems).where(eq(shoppingListItems.id, id));
   }
 
   async generateShoppingList(weekStartDate: string): Promise<ShoppingListItem[]> {
     // Clear existing shopping list for this week
-    await db.delete(shoppingListItems).where(eq(shoppingListItems.weekStartDate, weekStartDate));
+    await this.db.delete(shoppingListItems).where(eq(shoppingListItems.weekStartDate, weekStartDate));
 
     // Get all meal plans for the week
     const weekMealPlans = await this.getMealPlans(weekStartDate);
@@ -303,21 +306,21 @@ export class DatabaseStorage implements IStorage {
 
   // Recipe collection operations
   async getRecipeCollections(): Promise<RecipeCollection[]> {
-    return await db.select().from(recipeCollections).orderBy(desc(recipeCollections.createdAt));
+    return await this.db.select().from(recipeCollections).orderBy(desc(recipeCollections.createdAt));
   }
 
   async getRecipeCollection(id: string): Promise<RecipeCollection | undefined> {
-    const result = await db.select().from(recipeCollections).where(eq(recipeCollections.id, id)).limit(1);
+    const result = await this.db.select().from(recipeCollections).where(eq(recipeCollections.id, id)).limit(1);
     return result[0];
   }
 
   async createRecipeCollection(insertCollection: InsertRecipeCollection): Promise<RecipeCollection> {
-    const result = await db.insert(recipeCollections).values(insertCollection).returning();
+    const result = await this.db.insert(recipeCollections).values(insertCollection).returning();
     return result[0];
   }
 
   async updateRecipeCollection(id: string, updateData: Partial<InsertRecipeCollection>): Promise<RecipeCollection> {
-    const result = await db.update(recipeCollections).set(updateData).where(eq(recipeCollections.id, id)).returning();
+    const result = await this.db.update(recipeCollections).set(updateData).where(eq(recipeCollections.id, id)).returning();
     if (result.length === 0) {
       throw new Error("Recipe collection not found");
     }
@@ -326,7 +329,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRecipeCollection(id: string): Promise<void> {
     // Collection items will be deleted automatically due to cascade
-    await db.delete(recipeCollections).where(eq(recipeCollections.id, id));
+    await this.db.delete(recipeCollections).where(eq(recipeCollections.id, id));
   }
 
   // Collection item operations
@@ -356,7 +359,7 @@ export class DatabaseStorage implements IStorage {
       return existing[0];
     }
 
-    const result = await db.insert(recipeCollectionItems).values({
+    const result = await this.db.insert(recipeCollectionItems).values({
       collectionId,
       recipeId
     }).returning();
@@ -364,7 +367,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removeRecipeFromCollection(collectionId: string, recipeId: string): Promise<void> {
-    await db.delete(recipeCollectionItems).where(and(
+    await this.db.delete(recipeCollectionItems).where(and(
       eq(recipeCollectionItems.collectionId, collectionId),
       eq(recipeCollectionItems.recipeId, recipeId)
     ));
@@ -378,7 +381,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     const newFavoriteStatus = recipe.isFavorite ? 0 : 1;
-    const result = await db.update(recipes)
+    const result = await this.db.update(recipes)
       .set({ isFavorite: newFavoriteStatus })
       .where(eq(recipes.id, id))
       .returning();
@@ -387,7 +390,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFavoriteRecipes(): Promise<Recipe[]> {
-    return await db.select().from(recipes)
+    return await this.db.select().from(recipes)
       .where(eq(recipes.isFavorite, 1))
       .orderBy(desc(recipes.createdAt));
   }
@@ -398,7 +401,7 @@ export class DatabaseStorage implements IStorage {
       throw new Error("Rating must be between 1 and 5");
     }
 
-    const result = await db.update(recipes)
+    const result = await this.db.update(recipes)
       .set({ rating })
       .where(eq(recipes.id, id))
       .returning();
@@ -411,7 +414,10 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage = new DatabaseStorage();
+// Import development storage for demo
+import { DevMemStorage } from './dev-storage';
 
-// Initialize sample data on startup
-storage.initializeSampleData().catch(console.error);
+// For development demonstration, use in-memory storage
+export const storage = new DevMemStorage();
+
+console.log('🚀 Using in-memory storage for development demo');

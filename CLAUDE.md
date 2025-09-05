@@ -4,89 +4,116 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MealMate is a full-stack web application for meal planning, recipe management, and shopping list generation. It's built as a monorepo with Express.js backend and React frontend, using Vite for development and bundling.
+MealMate is a full-stack web application for meal planning, recipe management, and shopping list generation. Built as a monorepo with Express.js backend and React frontend using Vite.
 
 ## Architecture
 
-- **Monorepo structure**: Client and server code in separate directories
-- **Frontend**: React + TypeScript with Vite, using Radix UI components and Tailwind CSS
-- **Backend**: Express.js with TypeScript, PostgreSQL with Drizzle ORM
-- **Database**: PostgreSQL with Drizzle ORM for data persistence
-- **Shared**: Common schema definitions and types in `shared/` directory
-- **Routing**: Client uses Wouter for routing, server uses Express
+- **Frontend**: React + TypeScript with Vite, Radix UI components, Tailwind CSS
+- **Backend**: Express.js with TypeScript
+- **Database**: PostgreSQL with Drizzle ORM (Neon for serverless deployment)
 - **State Management**: React Query (TanStack Query) for server state
-- **AI Integration**: Mistral API for recipe parsing functionality
+- **Routing**: Wouter (client), Express (server)
+- **AI Integration**: Mistral API for recipe parsing
+- **Schema Validation**: Zod with Drizzle-Zod integration
 
 ## Key Commands
 
 ```bash
-# Development (runs both client and server)
+# Development - runs tsx directly, no build needed
 npm run dev
 
 # Type checking
 npm run check
 
-# Build for production
-npm run build
-
-# Start production server
-npm start
+# Production build
+npm run build        # Builds both client (Vite) and server (esbuild)
+npm start           # Runs production build
 
 # Database operations
-npm run db:generate    # Generate migration files
-npm run db:push       # Push schema to database
-npm run db:migrate    # Run migrations
-npm run db:studio     # Open database GUI
+npm run db:generate  # Generate migration files from schema changes
+npm run db:push     # Push schema directly to database (dev)
+npm run db:migrate  # Run migrations (production)
+npm run db:studio   # Open Drizzle Studio GUI
 ```
 
-## Directory Structure
+## Core Architecture Patterns
 
-```
-├── client/           # React frontend
-│   ├── src/
-│   │   ├── components/  # React components including UI library
-│   │   ├── pages/      # Route components (dashboard, recipes, shopping)
-│   │   ├── hooks/      # Custom React hooks
-│   │   └── lib/        # Utilities and query client
-├── server/           # Express.js backend
-│   ├── index.ts      # Main server entry point
-│   ├── routes.ts     # API route definitions
-│   ├── storage.ts    # In-memory data storage layer
-│   └── recipe-parser.ts # AI-powered recipe parsing
-├── shared/          # Shared TypeScript schemas and types
-└── vite.config.ts   # Vite configuration
-```
+### Database Layer
+- **Schema**: `shared/schema.ts` defines all tables using Drizzle ORM
+- **Connection**: `server/db.ts` uses Neon serverless PostgreSQL driver
+- **Storage Layer**: `server/storage.ts` provides data access methods
+- **Dev Storage**: `server/dev-storage.ts` handles in-memory fallback for development
+
+### API Structure
+- **Routes**: `server/routes.ts` registers all Express endpoints
+- **Recipe Parser**: `server/recipe-parser.ts` uses Mistral AI for text parsing
+- **Nutrition**: `server/nutrition.ts` calculates nutritional information
+- **Collections**: Support for organizing recipes into custom collections
+
+### Frontend Architecture
+- **Components**: Located in `client/src/components/ui/` (Radix UI based)
+- **Pages**: Route components in `client/src/pages/` (dashboard, recipes, shopping)
+- **API Client**: Uses React Query with fetch for data synchronization
+- **Form Handling**: React Hook Form with Zod validation
+
+### Path Aliases
+- `@/`: Maps to `client/src/`
+- `@shared/`: Maps to `shared/`
+- `@assets/`: Maps to `attached_assets/`
+
+## Database Schema
+
+Key tables (all with PostgreSQL indexes for performance):
+- `recipes`: Core recipe data with JSONB ingredients field
+- `recipe_collections`: Custom recipe groupings
+- `recipe_collection_items`: Many-to-many relationship
+- `meal_plans`: Weekly meal scheduling
+- `shopping_list_items`: Generated from meal plans
 
 ## API Endpoints
 
-- **Recipes**: `/api/recipes` (CRUD operations)
-- **Recipe parsing**: `/api/recipes/parse` (AI-powered text parsing)
-- **Meal plans**: `/api/meal-plans` (weekly meal planning)
-- **Shopping lists**: `/api/shopping-list` (generate from meal plans)
+### Recipes
+- `GET /api/recipes` - Search with query params
+- `POST /api/recipes/parse` - AI-powered text parsing
+- `GET/POST/PUT/DELETE /api/recipes/:id` - CRUD operations
+- `PUT /api/recipes/:id/favorite` - Toggle favorite status
+- `PUT /api/recipes/:id/rate` - Update rating
 
-## Development Notes
+### Collections
+- `GET/POST /api/collections` - List and create collections
+- `POST /api/collections/:id/recipes` - Add recipe to collection
+- `DELETE /api/collections/:id/recipes/:recipeId` - Remove from collection
 
-- Uses PostgreSQL with Drizzle ORM for data persistence
-- Recipe parsing requires MISTRAL_API_KEY environment variable  
-- Database setup requires DATABASE_URL environment variable
-- Server runs on port 5000 (configurable via PORT env var)
-- Client proxy configured in Vite for API requests
-- Shared schema validation using Zod
-- Component library based on Radix UI with Tailwind styling
-- Drag-and-drop functionality for meal planning
-- Real-time shopping list generation from planned meals
-- Sample data automatically seeded on first startup
+### Meal Planning
+- `GET /api/meal-plans?startDate=&endDate=` - Get plans for date range
+- `POST /api/meal-plans` - Create meal plan entry
+- `DELETE /api/meal-plans/:id` - Remove meal plan
 
-## Environment Setup
+### Shopping List
+- `GET /api/shopping-list?weekStartDate=` - Generate list for week
+- `PUT /api/shopping-list/:id/check` - Toggle item checked state
 
-1. Copy `.env.example` to `.env`
-2. Set `DATABASE_URL` (PostgreSQL connection string)
-3. Set `MISTRAL_API_KEY` (for AI recipe parsing)
-4. Run `npm run db:push` to initialize database
-5. Start development with `npm run dev`
+## Environment Configuration
 
-See `DATABASE_SETUP.md` for detailed database configuration.
+Required environment variables:
+```env
+DATABASE_URL=postgresql://...  # PostgreSQL connection string
+MISTRAL_API_KEY=...            # For AI recipe parsing
+PORT=5000                      # Server port (optional)
+NODE_ENV=development           # Environment mode
+```
 
-## Testing
+## Development Workflow
 
-No test framework is currently configured. Check package.json scripts for any test commands before running tests.
+1. Database changes: Modify `shared/schema.ts`, then run `npm run db:push`
+2. API changes: Update `server/routes.ts` and `server/storage.ts`
+3. UI changes: Components in `client/src/components/`, pages in `client/src/pages/`
+4. Hot reload: Development server automatically reloads on changes
+
+## Important Notes
+
+- Production build uses esbuild for server bundling with ESM output
+- Vite proxy configuration handles `/api` routes in development
+- Database migrations tracked in `migrations/` directory
+- Sample recipes automatically seeded on first startup if database is empty
+- All timestamps stored in UTC, dates in YYYY-MM-DD format

@@ -2,19 +2,17 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Navigation from "@/components/navigation";
 import RecipeCard from "@/components/recipe-card";
-import RecipeModal from "@/components/recipe-modal";
-import { Button } from "@/components/ui/button";
+import RecipeForm from "@/components/recipe-form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Recipe } from "@shared/schema";
-import { Search, Plus } from "lucide-react";
+import { Search } from "lucide-react";
 
 export default function Recipes() {
   const [searchQuery, setSearchQuery] = useState("");
   const [dietaryFilter, setDietaryFilter] = useState("");
-  const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
 
   const { data: recipes = [], isLoading } = useQuery({
     queryKey: ['/api/recipes', searchQuery, dietaryFilter],
@@ -35,20 +33,25 @@ export default function Recipes() {
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-3xl font-bold text-foreground">Recipe Collection</h2>
-              <p className="text-muted-foreground mt-1">Manage and organize your recipes</p>
-            </div>
-            <Button 
-              onClick={() => setIsRecipeModalOpen(true)}
-              data-testid="button-add-recipe"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Recipe
-            </Button>
+          <div>
+            <h2 className="text-3xl font-bold text-foreground">Recipe Collection</h2>
+            <p className="text-muted-foreground mt-1">Manage and organize your recipes</p>
           </div>
         </div>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-xl">Add New Recipe</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col space-y-4">
+              <p className="text-muted-foreground">
+                Create a new recipe to add to your collection. You can manually enter recipe details or import from a URL.
+              </p>
+              <RecipeForm />
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
@@ -91,10 +94,7 @@ export default function Recipes() {
             ) : recipes.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-muted-foreground mb-4">No recipes found</p>
-                <Button onClick={() => setIsRecipeModalOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Your First Recipe
-                </Button>
+                <p className="text-sm text-muted-foreground">Use the "Add New Recipe" section above to create your first recipe.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -109,11 +109,6 @@ export default function Recipes() {
           </CardContent>
         </Card>
       </main>
-
-      <RecipeModal 
-        isOpen={isRecipeModalOpen}
-        onClose={() => setIsRecipeModalOpen(false)}
-      />
     </div>
   );
 }
