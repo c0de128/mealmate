@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { type Recipe, type InsertRecipe, type MealPlan, type InsertMealPlan, type ShoppingListItem, type InsertShoppingListItem, type Ingredient, type RecipeCollection, type InsertRecipeCollection, type RecipeCollectionItem, type InsertRecipeCollectionItem } from "@shared/schema";
+import { type PaginatedResult } from "./storage";
 
 export interface IStorage {
   getRecipes(): Promise<Recipe[]>;
@@ -7,7 +8,7 @@ export interface IStorage {
   createRecipe(recipe: InsertRecipe): Promise<Recipe>;
   updateRecipe(id: string, recipe: Partial<InsertRecipe>): Promise<Recipe>;
   deleteRecipe(id: string): Promise<void>;
-  searchRecipes(query: string, dietaryFilter?: string): Promise<Recipe[]>;
+  searchRecipes(query: string, dietaryFilter?: string, limit?: number, offset?: number): Promise<PaginatedResult<Recipe>>;
   
   getMealPlans(weekStartDate: string): Promise<MealPlan[]>;
   getMealPlan(date: string, mealType: string): Promise<MealPlan | undefined>;
@@ -146,9 +147,9 @@ export class DevMemStorage implements IStorage {
     }
   }
 
-  async searchRecipes(query: string, dietaryFilter?: string): Promise<Recipe[]> {
-    const recipes = Array.from(this.recipes.values());
-    return recipes.filter(recipe => {
+  async searchRecipes(query: string, dietaryFilter?: string, limit = 10, offset = 0): Promise<PaginatedResult<Recipe>> {
+    const allRecipes = Array.from(this.recipes.values());
+    const filteredRecipes = allRecipes.filter(recipe => {
       const matchesQuery = !query || 
         recipe.name.toLowerCase().includes(query.toLowerCase()) ||
         recipe.description?.toLowerCase().includes(query.toLowerCase()) ||
@@ -160,6 +161,19 @@ export class DevMemStorage implements IStorage {
       
       return matchesQuery && matchesDietary;
     });
+
+    // Sort by creation date (newest first)
+    const sortedRecipes = filteredRecipes.sort((a, b) => 
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+
+    // Apply pagination
+    const paginatedRecipes = sortedRecipes.slice(offset, offset + limit);
+
+    return {
+      recipes: paginatedRecipes,
+      total: filteredRecipes.length
+    };
   }
 
   async toggleRecipeFavorite(id: string): Promise<Recipe> {
@@ -185,11 +199,20 @@ export class DevMemStorage implements IStorage {
   }
 
   // Simplified implementations for demo
-  async getMealPlans(): Promise<MealPlan[]> { return []; }
-  async getMealPlan(): Promise<MealPlan | undefined> { return undefined; }
+  async getMealPlans(weekStartDate: string): Promise<MealPlan[]> { 
+    return Array.from(this.mealPlans.values()); 
+  }
+  async getMealPlan(date: string, mealType: string): Promise<MealPlan | undefined> { 
+    return Array.from(this.mealPlans.values()).find(mp => mp.date === date && mp.mealType === mealType);
+  }
   async createMealPlan(insertMealPlan: InsertMealPlan): Promise<MealPlan> { 
     const id = randomUUID();
-    const mealPlan: MealPlan = { id, ...insertMealPlan, recipeId: insertMealPlan.recipeId || null };
+    const mealPlan: MealPlan = { 
+      id, 
+      ...insertMealPlan, 
+      recipeId: insertMealPlan.recipeId || null,
+      servings: insertMealPlan.servings || 1
+    };
     this.mealPlans.set(id, mealPlan);
     return mealPlan;
   }

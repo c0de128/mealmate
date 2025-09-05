@@ -127,7 +127,14 @@ export function calculateRecipeNutrition(ingredients: Ingredient[]): NutritionIn
       const matchingKey = Object.keys(nutritionDatabase).find(key => 
         normalizedName.includes(key) || key.includes(normalizedName)
       );
-      nutritionInfo = matchingKey ? nutritionDatabase[matchingKey] : null;
+      nutritionInfo = matchingKey ? nutritionDatabase[matchingKey] : {
+        calories: 0,
+        protein: 0,
+        carbs: 0, 
+        fat: 0,
+        fiber: 0,
+        sodium: 0
+      };
     }
     
     if (nutritionInfo) {

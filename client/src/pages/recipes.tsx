@@ -3,16 +3,21 @@ import { useQuery } from "@tanstack/react-query";
 import Navigation from "@/components/navigation";
 import RecipeCard from "@/components/recipe-card";
 import RecipeForm from "@/components/recipe-form";
+import BulkOperations from "@/components/bulk-operations";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Recipe } from "@shared/schema";
-import { Search } from "lucide-react";
+import { Search, Square, CheckSquare } from "lucide-react";
 
 export default function Recipes() {
   const [searchQuery, setSearchQuery] = useState("");
   const [dietaryFilter, setDietaryFilter] = useState("");
+  const [selectedRecipeIds, setSelectedRecipeIds] = useState<string[]>([]);
+  const [selectionMode, setSelectionMode] = useState(false);
 
   const { data: recipes = [], isLoading } = useQuery({
     queryKey: ['/api/recipes', searchQuery, dietaryFilter],
@@ -26,6 +31,30 @@ export default function Recipes() {
       return response.json() as Promise<Recipe[]>;
     }
   });
+
+  const toggleRecipeSelection = (recipeId: string) => {
+    setSelectedRecipeIds(prev => 
+      prev.includes(recipeId) 
+        ? prev.filter(id => id !== recipeId)
+        : [...prev, recipeId]
+    );
+  };
+
+  const selectAllRecipes = () => {
+    setSelectedRecipeIds(recipes.map(recipe => recipe.id));
+  };
+
+  const clearSelection = () => {
+    setSelectedRecipeIds([]);
+    setSelectionMode(false);
+  };
+
+  const toggleSelectionMode = () => {
+    setSelectionMode(!selectionMode);
+    if (selectionMode) {
+      setSelectedRecipeIds([]);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -56,31 +85,75 @@ export default function Recipes() {
         <Card>
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between">
-              <CardTitle>All Recipes</CardTitle>
+              <div className="flex items-center space-x-4">
+                <CardTitle>All Recipes</CardTitle>
+                {selectionMode && (
+                  <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                    <span>{selectedRecipeIds.length} selected</span>
+                    {recipes.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={selectedRecipeIds.length === recipes.length ? clearSelection : selectAllRecipes}
+                      >
+                        {selectedRecipeIds.length === recipes.length ? (
+                          <>
+                            <CheckSquare className="h-4 w-4 mr-1" />
+                            Deselect All
+                          </>
+                        ) : (
+                          <>
+                            <Square className="h-4 w-4 mr-1" />
+                            Select All
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="flex items-center space-x-3 mt-4 sm:mt-0">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input 
-                    placeholder="Search recipes..." 
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    data-testid="input-search-recipes"
-                  />
-                </div>
-                <Select value={dietaryFilter} onValueChange={setDietaryFilter}>
-                  <SelectTrigger className="w-40" data-testid="select-dietary-filter">
-                    <SelectValue placeholder="All Diets" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Diets</SelectItem>
-                    <SelectItem value="vegetarian">Vegetarian</SelectItem>
-                    <SelectItem value="vegan">Vegan</SelectItem>
-                    <SelectItem value="gluten-free">Gluten-Free</SelectItem>
-                    <SelectItem value="healthy">Healthy</SelectItem>
-                    <SelectItem value="keto">Keto</SelectItem>
-                  </SelectContent>
-                </Select>
+                {selectionMode && (
+                  <div className="flex items-center space-x-2">
+                    <BulkOperations 
+                      selectedRecipeIds={selectedRecipeIds} 
+                      onSelectionChange={setSelectedRecipeIds}
+                    />
+                    <Button variant="outline" size="sm" onClick={clearSelection}>
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+                {!selectionMode && (
+                  <>
+                    <Button variant="outline" size="sm" onClick={toggleSelectionMode}>
+                      Select Recipes
+                    </Button>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="Search recipes..." 
+                        className="pl-10"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        data-testid="input-search-recipes"
+                      />
+                    </div>
+                    <Select value={dietaryFilter} onValueChange={setDietaryFilter}>
+                      <SelectTrigger className="w-40" data-testid="select-dietary-filter">
+                        <SelectValue placeholder="All Diets" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Diets</SelectItem>
+                        <SelectItem value="vegetarian">Vegetarian</SelectItem>
+                        <SelectItem value="vegan">Vegan</SelectItem>
+                        <SelectItem value="gluten-free">Gluten-Free</SelectItem>
+                        <SelectItem value="healthy">Healthy</SelectItem>
+                        <SelectItem value="keto">Keto</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </>
+                )}
               </div>
             </div>
           </CardHeader>
@@ -99,10 +172,22 @@ export default function Recipes() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {recipes.map((recipe) => (
-                  <RecipeCard
-                    key={recipe.id}
-                    recipe={recipe}
-                  />
+                  <div key={recipe.id} className="relative">
+                    {selectionMode && (
+                      <div className="absolute top-2 left-2 z-10">
+                        <Checkbox
+                          checked={selectedRecipeIds.includes(recipe.id)}
+                          onCheckedChange={() => toggleRecipeSelection(recipe.id)}
+                          className="bg-background border-2 border-primary data-[state=checked]:bg-primary"
+                        />
+                      </div>
+                    )}
+                    <div className={`${selectionMode ? 'cursor-pointer' : ''} ${selectedRecipeIds.includes(recipe.id) ? 'ring-2 ring-primary ring-offset-2' : ''}`}>
+                      <RecipeCard
+                        recipe={recipe}
+                      />
+                    </div>
+                  </div>
                 ))}
               </div>
             )}

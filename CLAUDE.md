@@ -9,21 +9,29 @@ MealMate is a full-stack web application for meal planning, recipe management, a
 ## Architecture
 
 - **Frontend**: React + TypeScript with Vite, Radix UI components, Tailwind CSS
-- **Backend**: Express.js with TypeScript
+- **Backend**: Express.js with TypeScript, runs directly with tsx (no build for dev)
 - **Database**: PostgreSQL with Drizzle ORM (Neon for serverless deployment)
 - **State Management**: React Query (TanStack Query) for server state
 - **Routing**: Wouter (client), Express (server)
-- **AI Integration**: Mistral API for recipe parsing
+- **AI Integration**: Mistral API for recipe text parsing, URL recipe scraping
 - **Schema Validation**: Zod with Drizzle-Zod integration
+- **Testing**: Jest with ts-jest for unit and integration tests
 
 ## Key Commands
 
 ```bash
 # Development - runs tsx directly, no build needed
-npm run dev
+npm run dev          # Starts development server on port 5000
 
 # Type checking
-npm run check
+npm run check        # TypeScript type checking
+
+# Testing
+npm test            # Run all tests
+npm run test:watch  # Run tests in watch mode
+npm run test:coverage # Generate coverage report
+npm run test:unit   # Run unit tests only
+npm run test:integration # Run integration tests only
 
 # Production build
 npm run build        # Builds both client (Vite) and server (esbuild)
@@ -34,6 +42,7 @@ npm run db:generate  # Generate migration files from schema changes
 npm run db:push     # Push schema directly to database (dev)
 npm run db:migrate  # Run migrations (production)
 npm run db:studio   # Open Drizzle Studio GUI
+npm run db:init     # Initialize database with schema and sample data
 ```
 
 ## Core Architecture Patterns
@@ -43,22 +52,48 @@ npm run db:studio   # Open Drizzle Studio GUI
 - **Connection**: `server/db.ts` uses Neon serverless PostgreSQL driver
 - **Storage Layer**: `server/storage.ts` provides data access methods
 - **Dev Storage**: `server/dev-storage.ts` handles in-memory fallback for development
+- **Backup System**: `server/backup-system.ts` and `server/backup-api.ts` handle data backups
 
 ### API Structure
+- **Main Server**: `server/index.ts` initializes Express app
+- **App Configuration**: `server/app.ts` configures middleware and routes
 - **Routes**: `server/routes.ts` registers all Express endpoints
 - **Recipe Parser**: `server/recipe-parser.ts` uses Mistral AI for text parsing
+- **URL Parser**: `server/url-recipe-parser.ts` scrapes recipes from URLs
 - **Nutrition**: `server/nutrition.ts` calculates nutritional information
 - **Collections**: Support for organizing recipes into custom collections
+- **Bulk Operations**: `server/bulk-operations.ts` handles batch operations
+- **Recipe Sharing**: `server/recipe-sharing.ts` manages recipe sharing functionality
+- **Error Handling**: `server/error-handler.ts` centralized error management
+- **Logging**: `server/logger.ts` and `server/logging-middleware.ts` for structured logging
+- **Caching**: `server/cache-middleware.ts` for response caching
+- **Health/Monitoring**: `server/health.ts` and `server/monitoring.ts` for system health
 
 ### Frontend Architecture
-- **Components**: Located in `client/src/components/ui/` (Radix UI based)
-- **Pages**: Route components in `client/src/pages/` (dashboard, recipes, shopping)
+- **Components**: 
+  - UI components in `client/src/components/ui/` (Radix UI based)
+  - Business components in `client/src/components/` (recipe-card, meal-slot, etc.)
+  - Bulk operations: `client/src/components/bulk-operations.tsx`
+  - Recipe sharing: `client/src/components/recipe-share.tsx`
+- **Pages**: Route components in `client/src/pages/`
+  - `dashboard.tsx` - Main meal planning interface
+  - `recipes.tsx` - Recipe management
+  - `shopping.tsx` - Shopping list generation
+  - `shared-recipe.tsx` - Public recipe viewing
+- **Hooks**: Custom hooks in `client/src/hooks/`
+  - `use-meal-plan.tsx` - Meal planning logic
+  - `use-drag-drop.tsx` - Drag and drop functionality
+  - `use-mobile.tsx` - Mobile detection
+  - `use-toast.ts` - Toast notifications
 - **API Client**: Uses React Query with fetch for data synchronization
 - **Form Handling**: React Hook Form with Zod validation
+- **PDF Export**: `client/src/lib/pdf-export.ts` for exporting recipes
 
 ### Path Aliases
 - `@/`: Maps to `client/src/`
 - `@shared/`: Maps to `shared/`
+- `@server/`: Maps to `server/`
+- `@client/`: Maps to `client/src/`
 - `@assets/`: Maps to `attached_assets/`
 
 ## Database Schema
@@ -73,11 +108,16 @@ Key tables (all with PostgreSQL indexes for performance):
 ## API Endpoints
 
 ### Recipes
-- `GET /api/recipes` - Search with query params
+- `GET /api/recipes` - Search with query params (search, category, tags, favorites)
 - `POST /api/recipes/parse` - AI-powered text parsing
+- `POST /api/recipes/parse-url` - Scrape recipe from URL
 - `GET/POST/PUT/DELETE /api/recipes/:id` - CRUD operations
 - `PUT /api/recipes/:id/favorite` - Toggle favorite status
 - `PUT /api/recipes/:id/rate` - Update rating
+- `POST /api/recipes/bulk/delete` - Batch delete recipes
+- `POST /api/recipes/bulk/collection` - Add multiple recipes to collection
+- `GET /api/recipes/:id/share` - Get shareable recipe link
+- `GET /api/shared/:shareId` - Get shared recipe data
 
 ### Collections
 - `GET/POST /api/collections` - List and create collections
@@ -92,6 +132,12 @@ Key tables (all with PostgreSQL indexes for performance):
 ### Shopping List
 - `GET /api/shopping-list?weekStartDate=` - Generate list for week
 - `PUT /api/shopping-list/:id/check` - Toggle item checked state
+
+### Backup & Health
+- `POST /api/backup/export` - Export all data
+- `POST /api/backup/import` - Import backup data
+- `GET /api/health` - System health check
+- `GET /api/health/metrics` - System metrics
 
 ## Environment Configuration
 
@@ -117,3 +163,8 @@ NODE_ENV=development           # Environment mode
 - Database migrations tracked in `migrations/` directory
 - Sample recipes automatically seeded on first startup if database is empty
 - All timestamps stored in UTC, dates in YYYY-MM-DD format
+- Session management with express-session and PostgreSQL store
+- Response caching implemented for performance
+- Structured logging with Winston for production
+- Tests use Jest with ts-jest for TypeScript support
+- Test files should match patterns: `*.test.ts`, `*.spec.ts`, or be in `__tests__/` directory

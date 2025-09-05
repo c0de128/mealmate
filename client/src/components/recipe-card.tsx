@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { type Recipe } from "@shared/schema";
 import OptimizedImage from "@/components/optimized-image";
+import RecipeShare from "@/components/recipe-share";
 import { Clock, Users, Copy, Edit, Trash2, Star, Heart } from "lucide-react";
 
 interface RecipeCardProps {
@@ -206,6 +207,9 @@ function RecipeCard({ recipe, onDragStart, onDragEnd }: RecipeCardProps) {
             >
               <Heart className={`h-3 w-3 ${recipe.isFavorite ? 'fill-current' : ''}`} />
             </Button>
+            <div onClick={(e) => e.stopPropagation()}>
+              <RecipeShare recipeId={recipe.id} recipeName={recipe.name} />
+            </div>
             <Button 
               variant="ghost" 
               size="sm"

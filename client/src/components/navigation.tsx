@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Utensils, Calendar, Book, ShoppingCart, Plus } from "lucide-react";
+import { Utensils, Calendar, Book, ShoppingCart, Plus, Settings } from "lucide-react";
 
 export default function Navigation() {
   const [location] = useLocation();
@@ -10,6 +10,7 @@ export default function Navigation() {
     { href: "/", label: "Dashboard", icon: Calendar },
     { href: "/recipes", label: "Recipes", icon: Book },
     { href: "/shopping", label: "Shopping List", icon: ShoppingCart },
+    { href: "/settings", label: "Settings", icon: Settings },
   ];
 
   return (

@@ -4,10 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { type ShoppingListItem } from "@shared/schema";
-import { ShoppingBasket, Download, Trash2 } from "lucide-react";
+import { exportShoppingListToPDF } from "@/lib/pdf-export";
+import { ShoppingBasket, Download, Trash2, FileText } from "lucide-react";
 
 interface ShoppingListProps {
   items: ShoppingListItem[];
@@ -45,7 +47,31 @@ function ShoppingList({ items, weekStartDate, totalCost, fullView = false }: Sho
     }
   });
 
-  const exportList = useCallback(() => {
+  const exportListAsPDF = useCallback(() => {
+    try {
+      const result = exportShoppingListToPDF(items, {
+        title: "MealMate Shopping List",
+        subtitle: `Week of ${weekStartDate}`,
+        groupByCategory: true,
+        showRecipeInfo: false,
+        includeChecked: true,
+        showDate: true
+      });
+      
+      toast({ 
+        title: "PDF exported successfully!", 
+        description: `${result.itemCount} items exported to ${result.filename}` 
+      });
+    } catch (error) {
+      toast({ 
+        title: "Export failed", 
+        description: (error as Error).message,
+        variant: "destructive" 
+      });
+    }
+  }, [items, weekStartDate, toast]);
+
+  const exportListAsText = useCallback(() => {
     const listText = items.map(item => 
       `${item.checked ? '✓' : '☐'} ${item.ingredient} (${item.quantity}${item.unit ? ' ' + item.unit : ''}) - $${item.estimatedCost}`
     ).join('\n');
@@ -60,7 +86,7 @@ function ShoppingList({ items, weekStartDate, totalCost, fullView = false }: Sho
     element.click();
     document.body.removeChild(element);
     
-    toast({ title: "Shopping list exported!" });
+    toast({ title: "Text file exported!" });
   }, [items, totalCost, weekStartDate, toast]);
 
   const checkedItems = useMemo(() => 
@@ -125,14 +151,27 @@ function ShoppingList({ items, weekStartDate, totalCost, fullView = false }: Sho
                 ${totalCost.toFixed(2)}
               </span>
             </div>
-            <Button 
-              onClick={exportList}
-              className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
-              data-testid="button-export-list"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export List
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+                  data-testid="button-export-list"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export List
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={exportListAsPDF}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportListAsText}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export as Text
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardContent>
       </Card>
@@ -161,10 +200,24 @@ function ShoppingList({ items, weekStartDate, totalCost, fullView = false }: Sho
                 {completionPercentage.toFixed(0)}% complete
               </span>
             </div>
-            <Button onClick={exportList} variant="outline" data-testid="button-export-full">
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" data-testid="button-export-full">
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={exportListAsPDF}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportListAsText}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export as Text
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           <div className="space-y-2">

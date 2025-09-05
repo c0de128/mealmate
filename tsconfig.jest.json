@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["jest", "node"],
+    "resolveJsonModule": true
+  },
+  "include": [
+    "__tests__/**/*",
+    "server/**/*",
+    "shared/**/*",
+    "__tests__/jest-globals.d.ts"
+  ]
+}

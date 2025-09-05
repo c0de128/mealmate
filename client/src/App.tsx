@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "@/pages/dashboard";
 import Recipes from "@/pages/recipes";
 import Shopping from "@/pages/shopping";
+import SharedRecipe from "@/pages/shared-recipe";
+import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -14,6 +16,8 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/recipes" component={Recipes} />
       <Route path="/shopping" component={Shopping} />
+      <Route path="/settings" component={Settings} />
+      <Route path="/share/recipe/:shareId" component={SharedRecipe} />
       <Route component={NotFound} />
     </Switch>
   );

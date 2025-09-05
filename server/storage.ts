@@ -1,6 +1,13 @@
 import { eq, and, gte, lte, desc, ilike, arrayContains, sql } from "drizzle-orm";
 import { recipes, mealPlans, shoppingListItems, recipeCollections, recipeCollectionItems } from "@shared/schema";
 import { type Recipe, type InsertRecipe, type MealPlan, type InsertMealPlan, type ShoppingListItem, type InsertShoppingListItem, type Ingredient, type RecipeCollection, type InsertRecipeCollection, type RecipeCollectionItem, type InsertRecipeCollectionItem } from "@shared/schema";
+import { withDatabaseErrorHandling, NotFoundError, ValidationError, validateRequiredFields } from "./error-handler";
+
+// Pagination result type
+export interface PaginatedResult<T> {
+  recipes: T[];
+  total: number;
+}
 
 export interface IStorage {
   // Recipe operations
@@ -9,7 +16,7 @@ export interface IStorage {
   createRecipe(recipe: InsertRecipe): Promise<Recipe>;
   updateRecipe(id: string, recipe: Partial<InsertRecipe>): Promise<Recipe>;
   deleteRecipe(id: string): Promise<void>;
-  searchRecipes(query: string, dietaryFilter?: string): Promise<Recipe[]>;
+  searchRecipes(query: string, dietaryFilter?: string, limit?: number, offset?: number): Promise<PaginatedResult<Recipe>>;
   
   // Meal plan operations
   getMealPlans(weekStartDate: string): Promise<MealPlan[]>;
@@ -43,6 +50,16 @@ export interface IStorage {
   
   // Rating operations
   setRecipeRating(id: string, rating: number): Promise<Recipe>;
+  
+  // Data export/import operations
+  getAllRecipes(): Promise<Recipe[]>;
+  getAllMealPlans(): Promise<MealPlan[]>;
+  getAllShoppingLists(): Promise<ShoppingListItem[]>;
+  recipeExists(id: string): Promise<boolean>;
+  mealPlanExists(id: string): Promise<boolean>;
+  shoppingListExists(id: string): Promise<boolean>;
+  createShoppingList(items: InsertShoppingListItem[]): Promise<ShoppingListItem[]>;
+  updateShoppingList(id: string, items: InsertShoppingListItem[]): Promise<ShoppingListItem[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -52,6 +69,11 @@ export class DatabaseStorage implements IStorage {
     // Lazy load database connection only when DatabaseStorage is used
     const { db } = require("./db");
     this.db = db;
+    
+    // Initialize sample data automatically
+    this.initializeSampleData().catch(error => {
+      console.warn('Failed to initialize sample data:', error.message);
+    });
   }
 
   async initializeSampleData() {
@@ -109,35 +131,104 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRecipes(): Promise<Recipe[]> {
-    return await this.this.db.select().from(recipes).orderBy(desc(recipes.createdAt));
+    return await withDatabaseErrorHandling(
+      () => this.db.select().from(recipes).orderBy(desc(recipes.createdAt)),
+      'fetch',
+      'recipes'
+    );
   }
 
   async getRecipe(id: string): Promise<Recipe | undefined> {
-    const result = await this.db.select().from(recipes).where(eq(recipes.id, id)).limit(1);
-    return result[0];
+    if (!id || typeof id !== 'string') {
+      throw new ValidationError('Recipe ID is required and must be a string');
+    }
+    
+    return await withDatabaseErrorHandling(
+      async () => {
+        const result = await this.db.select().from(recipes).where(eq(recipes.id, id)).limit(1);
+        return result[0];
+      },
+      'fetch',
+      'recipe'
+    );
   }
 
   async createRecipe(insertRecipe: InsertRecipe): Promise<Recipe> {
-    const result = await this.db.insert(recipes).values(insertRecipe).returning();
-    return result[0];
+    // Validate required fields
+    validateRequiredFields(insertRecipe, ['name', 'difficulty'], 'recipe');
+    
+    if (insertRecipe.ingredients && !Array.isArray(insertRecipe.ingredients)) {
+      throw new ValidationError('Ingredients must be an array');
+    }
+    
+    if (insertRecipe.ingredients && insertRecipe.ingredients.length === 0) {
+      throw new ValidationError('Recipe must have at least one ingredient');
+    }
+    
+    return await withDatabaseErrorHandling(
+      async () => {
+        const result = await this.db.insert(recipes).values(insertRecipe).returning();
+        if (result.length === 0) {
+          throw new Error('Failed to create recipe - no result returned');
+        }
+        return result[0];
+      },
+      'create',
+      'recipe'
+    );
   }
 
   async updateRecipe(id: string, updateData: Partial<InsertRecipe>): Promise<Recipe> {
-    const result = await this.db.update(recipes).set(updateData).where(eq(recipes.id, id)).returning();
-    if (result.length === 0) {
-      throw new Error("Recipe not found");
+    if (!id || typeof id !== 'string') {
+      throw new ValidationError('Recipe ID is required and must be a string');
     }
-    return result[0];
+    
+    if (Object.keys(updateData).length === 0) {
+      throw new ValidationError('At least one field must be provided for update');
+    }
+    
+    if (updateData.ingredients && !Array.isArray(updateData.ingredients)) {
+      throw new ValidationError('Ingredients must be an array');
+    }
+    
+    return await withDatabaseErrorHandling(
+      async () => {
+        const result = await this.db.update(recipes).set(updateData).where(eq(recipes.id, id)).returning();
+        if (result.length === 0) {
+          throw new NotFoundError('Recipe', id);
+        }
+        return result[0];
+      },
+      'update',
+      'recipe'
+    );
   }
 
   async deleteRecipe(id: string): Promise<void> {
-    // Delete related meal plans first (foreign key constraint)
-    await this.db.delete(mealPlans).where(eq(mealPlans.recipeId, id));
-    // Delete the recipe
-    await this.db.delete(recipes).where(eq(recipes.id, id));
+    if (!id || typeof id !== 'string') {
+      throw new ValidationError('Recipe ID is required and must be a string');
+    }
+    
+    return await withDatabaseErrorHandling(
+      async () => {
+        // Check if recipe exists before attempting deletion
+        const existing = await this.db.select({ id: recipes.id }).from(recipes).where(eq(recipes.id, id)).limit(1);
+        if (existing.length === 0) {
+          throw new NotFoundError('Recipe', id);
+        }
+        
+        // Delete related meal plans first (foreign key constraint)
+        await this.db.delete(mealPlans).where(eq(mealPlans.recipeId, id));
+        
+        // Delete the recipe
+        await this.db.delete(recipes).where(eq(recipes.id, id));
+      },
+      'delete',
+      'recipe'
+    );
   }
 
-  async searchRecipes(query: string, dietaryFilter?: string): Promise<Recipe[]> {
+  async searchRecipes(query: string, dietaryFilter?: string, limit = 10, offset = 0): Promise<PaginatedResult<Recipe>> {
     const conditions = [];
     
     // Text search in name and description
@@ -160,13 +251,32 @@ export class DatabaseStorage implements IStorage {
       conditions.push(arrayContains(recipes.dietaryTags, [dietaryFilter]));
     }
     
+    // Base query for results
     let dbQuery = this.db.select().from(recipes);
     
     if (conditions.length > 0) {
       dbQuery = dbQuery.where(and(...conditions));
     }
     
-    return await dbQuery.orderBy(desc(recipes.createdAt));
+    // Get paginated results
+    const paginatedRecipes = await dbQuery
+      .orderBy(desc(recipes.createdAt))
+      .limit(limit)
+      .offset(offset);
+    
+    // Get total count for pagination metadata
+    let countQuery = this.db.select({ count: sql`count(*)`.mapWith(Number) }).from(recipes);
+    
+    if (conditions.length > 0) {
+      countQuery = countQuery.where(and(...conditions));
+    }
+    
+    const [{ count: total }] = await countQuery;
+    
+    return {
+      recipes: paginatedRecipes,
+      total
+    };
   }
 
   async getMealPlans(weekStartDate: string): Promise<MealPlan[]> {
@@ -412,12 +522,119 @@ export class DatabaseStorage implements IStorage {
     
     return result[0];
   }
+
+  // Data export/import methods
+  async getAllRecipes(): Promise<Recipe[]> {
+    return await withDatabaseErrorHandling(
+      () => this.db.select().from(recipes).orderBy(desc(recipes.createdAt)),
+      'fetch',
+      'all recipes'
+    );
+  }
+
+  async getAllMealPlans(): Promise<MealPlan[]> {
+    return await withDatabaseErrorHandling(
+      () => this.db.select().from(mealPlans).orderBy(desc(mealPlans.createdAt)),
+      'fetch',
+      'all meal plans'
+    );
+  }
+
+  async getAllShoppingLists(): Promise<ShoppingListItem[]> {
+    return await withDatabaseErrorHandling(
+      () => this.db.select().from(shoppingListItems).orderBy(desc(shoppingListItems.createdAt)),
+      'fetch',
+      'all shopping lists'
+    );
+  }
+
+  async recipeExists(id: string): Promise<boolean> {
+    const result = await withDatabaseErrorHandling(
+      () => this.db.select({ id: recipes.id }).from(recipes).where(eq(recipes.id, id)).limit(1),
+      'fetch',
+      'recipe existence check'
+    );
+    return result.length > 0;
+  }
+
+  async mealPlanExists(id: string): Promise<boolean> {
+    const result = await withDatabaseErrorHandling(
+      () => this.db.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.id, id)).limit(1),
+      'fetch',
+      'meal plan existence check'
+    );
+    return result.length > 0;
+  }
+
+  async shoppingListExists(id: string): Promise<boolean> {
+    const result = await withDatabaseErrorHandling(
+      () => this.db.select({ id: shoppingListItems.id }).from(shoppingListItems).where(eq(shoppingListItems.id, id)).limit(1),
+      'fetch',
+      'shopping list existence check'
+    );
+    return result.length > 0;
+  }
+
+  async createShoppingList(items: InsertShoppingListItem[]): Promise<ShoppingListItem[]> {
+    return await withDatabaseErrorHandling(
+      async () => {
+        const results: ShoppingListItem[] = [];
+        for (const item of items) {
+          const result = await this.db.insert(shoppingListItems).values(item).returning();
+          results.push(result[0]);
+        }
+        return results;
+      },
+      'create',
+      'shopping list'
+    );
+  }
+
+  async updateShoppingList(id: string, items: InsertShoppingListItem[]): Promise<ShoppingListItem[]> {
+    return await withDatabaseErrorHandling(
+      async () => {
+        // First delete existing items for this shopping list ID
+        await this.db.delete(shoppingListItems).where(eq(shoppingListItems.id, id));
+        
+        // Then create new items
+        const results: ShoppingListItem[] = [];
+        for (const item of items) {
+          const result = await this.db.insert(shoppingListItems).values({
+            ...item,
+            id: id // Ensure they all have the same shopping list ID
+          }).returning();
+          results.push(result[0]);
+        }
+        return results;
+      },
+      'update',
+      'shopping list'
+    );
+  }
 }
 
-// Import development storage for demo
+// Import both storage implementations
 import { DevMemStorage } from './dev-storage';
 
-// For development demonstration, use in-memory storage
-export const storage = new DevMemStorage();
+// Determine storage type based on environment
+function createStorage(): IStorage {
+  const useDatabase = process.env.USE_DATABASE === 'true';
+  
+  if (useDatabase) {
+    try {
+      // Try to create DatabaseStorage instance
+      const dbStorage = new DatabaseStorage();
+      console.log('🗄️  Using PostgreSQL database storage');
+      return dbStorage;
+    } catch (error) {
+      console.warn('⚠️  Failed to connect to database, falling back to in-memory storage');
+      console.warn('Error:', error instanceof Error ? error.message : 'Unknown error');
+      return new DevMemStorage();
+    }
+  } else {
+    console.log('🚀 Using in-memory storage for development demo');
+    return new DevMemStorage();
+  }
+}
 
-console.log('🚀 Using in-memory storage for development demo');
+export const storage = createStorage();

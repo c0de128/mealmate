@@ -1,13 +1,22 @@
 import { Mistral } from "@mistralai/mistralai";
 import { type Ingredient } from "@shared/schema";
+import { ExternalAPIError, withDatabaseErrorHandling } from "./error-handler";
 
-// Validate API key is configured
-const apiKey = process.env.MISTRAL_API_KEY;
-if (!apiKey) {
-  console.warn("⚠️  MISTRAL_API_KEY not configured - recipe parsing will be disabled");
+// Lazy initialization - check API key when actually needed
+let mistral: Mistral | null = null;
+
+function getMistralClient(): Mistral | null {
+  if (!mistral) {
+    const apiKey = process.env.MISTRAL_API_KEY;
+    if (apiKey) {
+      mistral = new Mistral({ apiKey });
+      console.log("✅ Mistral API client initialized successfully");
+    } else {
+      console.warn("⚠️  MISTRAL_API_KEY not configured - recipe parsing will be disabled");
+    }
+  }
+  return mistral;
 }
-
-const mistral = apiKey ? new Mistral({ apiKey }) : null;
 
 interface ParsedRecipe {
   name: string;
@@ -22,8 +31,9 @@ interface ParsedRecipe {
 }
 
 export async function parseRecipeText(recipeText: string): Promise<ParsedRecipe> {
-  if (!mistral) {
-    throw new Error("Recipe parsing is not available. Please configure MISTRAL_API_KEY in your environment variables.");
+  const client = getMistralClient();
+  if (!client) {
+    throw new ExternalAPIError('Mistral', 'Recipe parsing is not available. Please configure MISTRAL_API_KEY in your environment variables.', 503);
   }
   
   try {
@@ -62,7 +72,7 @@ Guidelines:
 Return only valid JSON.`;
 
     console.log('Calling Mistral API...');
-    const response = await mistral.chat.complete({
+    const response = await client.chat.complete({
       model: "mistral-small-latest",
       messages: [
         {
@@ -147,7 +157,28 @@ Return only valid JSON.`;
     console.log('Final parsed result:', result);
     return result;
   } catch (error) {
-    console.error("Recipe parsing error:", error);
-    throw new Error("Failed to parse recipe. Please check the format and try again.");
+    const timestamp = new Date().toISOString();
+    console.error(`[${timestamp}] Recipe parsing failed:`, {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      recipeTextLength: recipeText.length
+    });
+    
+    // Handle specific Mistral API errors
+    if (error instanceof Error) {
+      if (error.message.includes('API key') || error.message.includes('unauthorized')) {
+        throw new ExternalAPIError('Mistral', 'API key is invalid or expired', 401);
+      }
+      
+      if (error.message.includes('rate limit') || error.message.includes('quota')) {
+        throw new ExternalAPIError('Mistral', 'API rate limit exceeded. Please try again later.', 429);
+      }
+      
+      if (error.message.includes('timeout') || error.message.includes('network')) {
+        throw new ExternalAPIError('Mistral', 'Network timeout. Please try again.', 504);
+      }
+    }
+    
+    throw new ExternalAPIError('Mistral', 'Failed to parse recipe. Please check the format and try again.', 500);
   }
 }

@@ -12,7 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { insertRecipeSchema, type Ingredient } from "@shared/schema";
-import { Plus, Trash2, Save, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Trash2, Save, Sparkles, ChevronDown, ChevronUp, Link } from "lucide-react";
 import { z } from "zod";
 
 interface RecipeFormProps {
@@ -45,6 +45,7 @@ export default function RecipeForm({ onSuccess }: RecipeFormProps) {
   const [selectedDietaryTags, setSelectedDietaryTags] = useState<string[]>([]);
   const [showSmartImport, setShowSmartImport] = useState(false);
   const [recipeText, setRecipeText] = useState("");
+  const [recipeUrl, setRecipeUrl] = useState("");
   
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -72,23 +73,7 @@ export default function RecipeForm({ onSuccess }: RecipeFormProps) {
       return data;
     },
     onSuccess: (parsedData: any) => {
-      // Populate form with parsed data
-      form.reset({
-        name: parsedData.name || "",
-        description: parsedData.description || "",
-        prepTime: parsedData.prepTime || 10,
-        cookTime: parsedData.cookTime || 20,
-        difficulty: parsedData.difficulty || "easy",
-        servings: parsedData.servings || 4,
-        instructions: parsedData.instructions || "",
-        imageUrl: "",
-        ingredients: parsedData.ingredients || [],
-        dietaryTags: parsedData.dietaryTags || []
-      });
-      
-      setIngredients(parsedData.ingredients || [{ name: "", quantity: "", unit: "" }]);
-      setSelectedDietaryTags(parsedData.dietaryTags || []);
-      setShowSmartImport(false);
+      populateFormWithParsedData(parsedData);
       setRecipeText("");
       toast({ title: "Recipe parsed successfully! Review and save." });
     },
@@ -100,6 +85,55 @@ export default function RecipeForm({ onSuccess }: RecipeFormProps) {
       });
     }
   });
+
+  const importFromUrlMutation = useMutation({
+    mutationFn: async (url: string) => {
+      const response = await apiRequest('POST', '/api/recipes/import-url', { url });
+      const data = await response.json();
+      return data;
+    },
+    onSuccess: (result: any) => {
+      populateFormWithParsedData(result.recipe);
+      
+      // Enhance with metadata if available
+      if (result.metadata?.image) {
+        form.setValue('imageUrl', result.metadata.image);
+      }
+      
+      setRecipeUrl("");
+      toast({ 
+        title: "Recipe imported successfully!", 
+        description: `From ${result.metadata?.siteName || new URL(result.metadata?.url).hostname}` 
+      });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to import recipe", 
+        description: error?.message || "Please check the URL and try again.",
+        variant: "destructive" 
+      });
+    }
+  });
+
+  const populateFormWithParsedData = (parsedData: any) => {
+    // Populate form with parsed data
+    form.reset({
+      name: parsedData.name || "",
+      description: parsedData.description || "",
+      prepTime: parsedData.prepTime || 10,
+      cookTime: parsedData.cookTime || 20,
+      difficulty: parsedData.difficulty || "easy",
+      servings: parsedData.servings || 4,
+      instructions: parsedData.instructions || "",
+      imageUrl: parsedData.imageUrl || "",
+      ingredients: parsedData.ingredients || [],
+      dietaryTags: parsedData.dietaryTags || []
+    });
+    
+    setIngredients(parsedData.ingredients || [{ name: "", quantity: "", unit: "" }]);
+    setSelectedDietaryTags(parsedData.dietaryTags || []);
+    setShowSmartImport(false);
+  };
 
   const createRecipeMutation = useMutation({
     mutationFn: async (data: FormData) => {
@@ -152,6 +186,7 @@ export default function RecipeForm({ onSuccess }: RecipeFormProps) {
     setSelectedDietaryTags([]);
     setShowSmartImport(false);
     setRecipeText("");
+    setRecipeUrl("");
     setIsOpen(false);
   };
 
@@ -161,6 +196,22 @@ export default function RecipeForm({ onSuccess }: RecipeFormProps) {
       return;
     }
     parseRecipeMutation.mutate(recipeText);
+  };
+
+  const handleUrlImport = () => {
+    if (!recipeUrl.trim()) {
+      toast({ title: "Please enter a recipe URL first", variant: "destructive" });
+      return;
+    }
+    
+    try {
+      new URL(recipeUrl);
+    } catch {
+      toast({ title: "Please enter a valid URL", variant: "destructive" });
+      return;
+    }
+    
+    importFromUrlMutation.mutate(recipeUrl);
   };
 
   const onSubmit = (data: FormData) => {
@@ -223,10 +274,58 @@ export default function RecipeForm({ onSuccess }: RecipeFormProps) {
                 <h3 className="font-semibold">Smart Recipe Import</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                Paste any recipe text below and I'll automatically extract the ingredients, instructions, and details for you.
+                Import recipes from URLs or paste recipe text below. I'll automatically extract ingredients, instructions, and details.
               </p>
-              <Textarea
-                placeholder="Paste your recipe here... 
+              
+              {/* URL Import Section */}
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Link className="h-4 w-4 text-primary" />
+                  <h4 className="font-medium text-sm">Import from URL</h4>
+                </div>
+                <div className="flex space-x-2">
+                  <Input
+                    placeholder="https://example.com/recipe-page"
+                    value={recipeUrl}
+                    onChange={(e) => setRecipeUrl(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-recipe-url"
+                  />
+                  <Button
+                    type="button"
+                    onClick={handleUrlImport}
+                    disabled={importFromUrlMutation.isPending || !recipeUrl.trim()}
+                    className="flex items-center space-x-2"
+                    data-testid="button-import-url"
+                  >
+                    <Link className="h-4 w-4" />
+                    <span>
+                      {importFromUrlMutation.isPending ? "Importing..." : "Import"}
+                    </span>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Supports most recipe websites including AllRecipes, Food Network, BBC Good Food, and more.
+                </p>
+              </div>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-secondary px-2 text-muted-foreground">Or</span>
+                </div>
+              </div>
+
+              {/* Text Import Section */}
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <h4 className="font-medium text-sm">Import from Text</h4>
+                </div>
+                <Textarea
+                  placeholder="Paste your recipe here... 
 
 Example:
 Teriyaki Salmon Bowls
@@ -238,36 +337,38 @@ Ingredients:
 Instructions:
 1. Marinate salmon in teriyaki sauce...
 2. Bake for 10-12 minutes..."
-                value={recipeText}
-                onChange={(e) => setRecipeText(e.target.value)}
-                rows={6}
-                className="resize-none"
-                data-testid="textarea-recipe-import"
-              />
-              <div className="flex space-x-2">
-                <Button
-                  type="button"
-                  onClick={handleSmartImport}
-                  disabled={parseRecipeMutation.isPending || !recipeText.trim()}
-                  className="flex items-center space-x-2"
-                  data-testid="button-parse-recipe"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  <span>
-                    {parseRecipeMutation.isPending ? "Parsing..." : "Parse Recipe"}
-                  </span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setRecipeText("");
-                    setShowSmartImport(false);
-                  }}
-                  data-testid="button-clear-import"
-                >
-                  Clear
-                </Button>
+                  value={recipeText}
+                  onChange={(e) => setRecipeText(e.target.value)}
+                  rows={6}
+                  className="resize-none"
+                  data-testid="textarea-recipe-import"
+                />
+                <div className="flex space-x-2">
+                  <Button
+                    type="button"
+                    onClick={handleSmartImport}
+                    disabled={parseRecipeMutation.isPending || !recipeText.trim()}
+                    className="flex items-center space-x-2"
+                    data-testid="button-parse-recipe"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    <span>
+                      {parseRecipeMutation.isPending ? "Parsing..." : "Parse Recipe"}
+                    </span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setRecipeText("");
+                      setRecipeUrl("");
+                      setShowSmartImport(false);
+                    }}
+                    data-testid="button-clear-import"
+                  >
+                    Clear
+                  </Button>
+                </div>
               </div>
             </div>
           </CollapsibleContent>
