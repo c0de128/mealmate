@@ -1,9 +1,13 @@
 import { Mistral } from "@mistralai/mistralai";
 import { type Ingredient } from "@shared/schema";
 
-const mistral = new Mistral({
-  apiKey: process.env.MISTRAL_API_KEY || ""
-});
+// Validate API key is configured
+const apiKey = process.env.MISTRAL_API_KEY;
+if (!apiKey) {
+  console.warn("⚠️  MISTRAL_API_KEY not configured - recipe parsing will be disabled");
+}
+
+const mistral = apiKey ? new Mistral({ apiKey }) : null;
 
 interface ParsedRecipe {
   name: string;
@@ -18,6 +22,10 @@ interface ParsedRecipe {
 }
 
 export async function parseRecipeText(recipeText: string): Promise<ParsedRecipe> {
+  if (!mistral) {
+    throw new Error("Recipe parsing is not available. Please configure MISTRAL_API_KEY in your environment variables.");
+  }
+  
   try {
     console.log('Parsing recipe text:', recipeText.substring(0, 100) + '...');
 

@@ -6,4 +6,7 @@ vite.config.ts.*
 *.tar.gz
 .env
 .env.local
+.env.production
+.env.development
 migrations/
+.claude/
